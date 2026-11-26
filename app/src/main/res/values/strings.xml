@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	<string name="app_name">Triggered Device Actions</string>
+	<string name="launcher_name">Triggered Actions</string>
+	<string name="quick_tile_label">Triggered Actions</string>
+</resources>

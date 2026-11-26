@@ -1,0 +1,58 @@
+{
+	"folders": [
+		{
+			"name": "Triggered Actions (Android)",
+			"path": "."
+		}
+	],
+	"settings": {
+		"terminal.integrated.defaultProfile.windows": "PowerShell",
+		"files.exclude": {
+			"**/.git": true,
+			"**/.gradle": true
+		},
+		"gradle.autoDetect": "off",
+		"java.server.launchMode": "LightWeight",
+		"java.jdt.ls.androidSupport.enabled": "off",
+		"java.project.importOnFirstTimeStartup": "disabled",
+		"java.configuration.updateBuildConfiguration": "disabled",
+		"java.autobuild.enabled": false,
+		"java.import.projectSelection": "manual",
+		"java.jdt.ls.vmargs": "-XX:+UseParallelGC -Xmx256m -Xms64m"
+	},
+	"launch": {
+		"version": "0.2.0",
+		"configurations": [
+			{
+				"name": "Run App on ADB Device",
+				"type": "PowerShell",
+				"request": "launch",
+				"script": "${workspaceFolder}/.vscode/RunAdbDevice.ps1",
+				"args": [
+					"-stringDeviceId",
+					"auto"
+				]
+			},
+			{
+				"name": "Start Emulated Device",
+				"type": "PowerShell",
+				"request": "launch",
+				"script": "${workspaceFolder}/.vscode/LaunchEmulator.ps1",
+				"args": [
+					"-stringAvdName",
+					"auto"
+				]
+			},
+			{
+				"name": "Run App on Emulated Device",
+				"type": "PowerShell",
+				"request": "launch",
+				"script": "${workspaceFolder}/.vscode/RunApp.ps1",
+				"args": [
+					"-stringAvdName",
+					"auto"
+				]
+			}
+		]
+	}
+}
