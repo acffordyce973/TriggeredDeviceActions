@@ -376,6 +376,7 @@ sealed interface SetTrigger {
 	data class NotificationReceivedTrigger(
 		override val stringId: String = UUID.randomUUID().toString(),
 		val stringPackageFilter: String = "",
+		val stringExcludedPackages: String = "",
 		val titleMatchMode: TextMatchMode = TextMatchMode.ANY,
 		val stringTitlePattern: String = "",
 		val bodyMatchMode: TextMatchMode = TextMatchMode.OTP_PRESET,
@@ -389,11 +390,19 @@ sealed interface SetTrigger {
 	data class NotificationDismissedTrigger(
 		override val stringId: String = UUID.randomUUID().toString(),
 		val stringPackageFilter: String = "",
+		val stringExcludedPackages: String = "",
 		val dismissReason: NotificationDismissReason = NotificationDismissReason.ANY,
 		val titleMatchMode: TextMatchMode = TextMatchMode.ANY,
 		val stringTitlePattern: String = "",
 		val bodyMatchMode: TextMatchMode = TextMatchMode.ANY,
 		val stringBodyPattern: String = ""
+	) : SetTrigger
+
+	@Serializable
+	@SerialName("device_booted")
+	data class DeviceBootedTrigger(
+		override val stringId: String = UUID.randomUUID().toString(),
+		val intBootDelaySeconds: Int = 0
 	) : SetTrigger
 }
 
@@ -587,7 +596,16 @@ sealed interface SetAction {
 	@SerialName("set_dnd")
 	data class SetDndAction(
 		override val stringId: String = UUID.randomUUID().toString(),
-		val targetMode: DndTargetMode = DndTargetMode.OFF_ALLOW_ALL
+		val targetMode: DndTargetMode = DndTargetMode.OFF_ALLOW_ALL,
+		val boolSetRingerLoudWhenOff: Boolean = false
+	) : SetAction
+
+	@Serializable
+	@SerialName("set_brightness")
+	data class SetBrightnessAction(
+		override val stringId: String = UUID.randomUUID().toString(),
+		val boolAutoBrightness: Boolean = false,
+		val intBrightnessPercent: Int = 50
 	) : SetAction
 
 	@Serializable
@@ -703,6 +721,7 @@ data class AppSettings(
 	val boolShowPersistentMonitorNotification: Boolean = true,
 	val boolIgnoreUnsupportedConditions: Boolean = true,
 	val boolIncludeSecretsInBackup: Boolean = true,
+	val boolHasDismissedPermissionsOnboarding: Boolean = false,
 	val intMaxLogEntries: Int = 100,
 	val stringBackupFilenameTemplate: String = "TriggeredActions_Config_{yyyyMMdd_HHmmss}"
 )

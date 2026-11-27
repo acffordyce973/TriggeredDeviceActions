@@ -555,6 +555,7 @@ object TriggerDispatcher {
 			if (objTrigger is SetTrigger.NotificationReceivedTrigger) {
 				if (objTrigger.boolIgnoreOngoing && boolIsOngoing) return@dispatchEvent null
 				if (objTrigger.boolIgnoreGroupSummary && boolIsGroupSummary) return@dispatchEvent null
+				if (isPackageExcluded(stringPackage, objTrigger.stringExcludedPackages)) return@dispatchEvent null
 				if (objTrigger.stringPackageFilter.isNotBlank()) {
 					val listAllowed = objTrigger.stringPackageFilter.split(',').map { it.trim() }.filter { it.isNotEmpty() }
 					if (listAllowed.isNotEmpty() && !listAllowed.any { it.equals(stringPackage, ignoreCase = true) }) {
@@ -613,6 +614,7 @@ object TriggerDispatcher {
 				if (objTrigger.dismissReason != NotificationDismissReason.ANY && objTrigger.dismissReason != dismissReason) {
 					return@dispatchEvent null
 				}
+				if (isPackageExcluded(stringPackage, objTrigger.stringExcludedPackages)) return@dispatchEvent null
 				if (objTrigger.stringPackageFilter.isNotBlank()) {
 					val listAllowed = objTrigger.stringPackageFilter.split(',').map { it.trim() }.filter { it.isNotEmpty() }
 					if (listAllowed.isNotEmpty() && !listAllowed.any { it.equals(stringPackage, ignoreCase = true) }) {
@@ -639,5 +641,68 @@ object TriggerDispatcher {
 				} else null
 			} else null
 		}
+	}
+
+	/**
+	 * Dispatches Device Booted / Rebooted triggers (`ACTION_BOOT_COMPLETED`).
+	 */
+	suspend fun onDeviceBooted(objContext: Context) {
+		val objBase = TriggerEventContext(
+			stringTriggerType = "device_booted",
+			stringTriggerSummary = "Device Booted"
+		)
+		val objRepo = ActionsRepository.getInstance(objContext)
+		objRepo.ensureLoaded()
+		if (!objRepo.flowSettings.value.boolMasterEngineEnabled) return
+
+		val listGeofences = objRepo.flowGeofences.value
+		val objState = DeviceStateCollector.refreshDeviceState(objContext)
+
+		for (objSet in objRepo.flowActionSets.value.filter { it.boolIsEnabled }) {
+			val objBootTrigger = objSet.listTriggers.filterIsInstance<SetTrigger.DeviceBootedTrigger>().firstOrNull()
+				?: continue
+			val objCtx = objBase.copy(
+				stringWifiSsid = objState.stringWifiSsid,
+				intBatteryPercent = objState.intBatteryPercent,
+				stringForegroundPackage = objState.stringCurrentForegroundPackage
+			)
+			if (ConditionEvaluator.evaluateSetConditions(
+					objSet,
+					objState,
+					listGeofences,
+					objCtx,
+					objRepo.flowSettings.value.boolIgnoreUnsupportedConditions
+				)
+			) {
+				val objEffectiveSet = if (objBootTrigger.intBootDelaySeconds > 0) {
+					objSet.copy(
+						listActions = listOf(
+							com.antigravity.triggeredactions.model.SetAction.WaitDelayAction(
+								intDelaySeconds = objBootTrigger.intBootDelaySeconds
+							)
+						) + objSet.listActions
+					)
+				} else {
+					objSet
+				}
+				TriggeredExecutionService.enqueueActionSet(objContext, objEffectiveSet, objCtx)
+			}
+		}
+	}
+
+	/**
+	 * Checks whether [stringPackage] matches any package listed in [stringExcludedCsv].
+	 *
+	 * @param stringPackage Notification source package name.
+	 * @param stringExcludedCsv Comma, semicolon, or newline-delimited excluded package list.
+	 * @return True if the package is excluded.
+	 */
+	internal fun isPackageExcluded(stringPackage: String, stringExcludedCsv: String): Boolean {
+		if (stringExcludedCsv.isBlank()) return false
+		return stringExcludedCsv
+			.split(',', ';', '\n')
+			.map { it.trim() }
+			.filter { it.isNotEmpty() }
+			.any { it.equals(stringPackage, ignoreCase = true) }
 	}
 }

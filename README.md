@@ -33,12 +33,13 @@
 
 ---
 
-## ⚡ Supported Triggers (16)
+## ⚡ Supported Triggers (17)
 
 | Trigger | Refinements & Data Filters |
 | :--- | :--- |
 | **Geofence Location** | Specific Geofence Area; `Enter`, `Exit`, or `Both` transitions |
 | **Time** | Exact daily `HH:mm` clock time (with Days of Week filter) or periodic *N*-minute interval |
+| **Device Booted** | Runs when the device powers on or finishes rebooting (`BOOT_COMPLETED`), with optional post-boot delay seconds |
 | **Device Unlocked / Locked** | `Device Unlocked` (`USER_PRESENT`) or `Device Locked` |
 | **Screen On / Off** | `Screen Turned On` or `Screen Turned Off` |
 | **Wi-Fi Connected** | `Connected` / `Disconnected`; SSID match (`Any`, `Contains`, `Equals`, `Wildcard`, `Regex`) |
@@ -51,8 +52,8 @@
 | **SMS Received** | Sender Contact/Number filter + Body match (`Any`, `Contains`, `Equals`, `Wildcard`, `Regex`, `OTP_PRESET`) |
 | **Battery Status** | Edge-triggered threshold (`Drops <= X%`, `Rises >= X%`, `Equals X%`) |
 | **Charging / Discharging** | `Plugged In` or `Unplugged`; Power source filter (`Any`, `AC`, `USB`, `Wireless`, `Dock`) |
-| **Notification Received** | Source App package(s), Title & Body match (`OTP_PRESET`, `Regex`, `Wildcard`, `Contains`), Ignore Ongoing/Summary |
-| **Notification Dismissed** | Source App package(s), Dismissal Reason (`Any`, `User Dismissed`, `User Clicked`, `App Cancelled`), Title/Body filter |
+| **Notification Received** | Source App package(s), **Excluded Apps** list, Title & Body match (context-aware `OTP_PRESET`, `Regex`, `Wildcard`, `Contains`), Ignore Ongoing/Summary |
+| **Notification Dismissed** | Source App package(s), **Excluded Apps** list, Dismissal Reason (`Any`, `User Dismissed`, `User Clicked`, `App Cancelled`), Title/Body filter |
 
 ---
 
@@ -78,13 +79,14 @@ Every condition supports **`NOT` (Invert)** and participates in the Set's **`ALL
 
 ---
 
-## 🚀 Supported Sequential Actions (11)
+## 🚀 Supported Sequential Actions (12)
 
 | Action | Capabilities & Refinements |
 | :--- | :--- |
 | **Make a Sound** | System Ringtone/Alarm picker or direct audio file path; stream (`Alarm`, `Notification`, `Media`, `Ring`); volume override & vibrate |
 | **Send Notification** | Custom Title & Body with `{variables}`, High/Standard priority, optional **Copy `{match}`** button & tap target |
-| **Set Do Not Disturb** | `OFF_ALLOW_ALL`, `PRIORITY_ONLY`, `ALARMS_ONLY`, or `TOTAL_SILENCE` |
+| **Set Do Not Disturb** | `OFF_ALLOW_ALL` (with optional **Set Ringer to Loud** override), `PRIORITY_ONLY`, `ALARMS_ONLY`, or `TOTAL_SILENCE` |
+| **Change Screen Brightness** | Set manual screen brightness (`0–100%`) or enable **Adaptive / Auto Brightness** |
 | **End / Reject Call** | Immediately ends/declines an active or ringing call via `TelecomManager.endCall()` |
 | **Send SMS** | Send to dynamic `{caller_number}` / `{sms_sender}` or custom number; multipart support; anti-loop per-recipient cooldown |
 | **Send Webhook** | Saved Discord / HTTP profiles or custom URL; Discord rich embeds or raw REST (`GET`/`POST`/`PUT`/`PATCH`) |
@@ -127,6 +129,7 @@ All rules, logs, and coordinates remain locally on your device; network connecti
 | `android.permission.USE_FULL_SCREEN_INTENT` | Fallback heads-up launch notification if overlay permission has not been granted. |
 | `android.permission.POST_NOTIFICATIONS` | Displays the optional monitor status notification and user-configured `Send Notification` alerts on Android 13+. |
 | `android.permission.ACCESS_NOTIFICATION_POLICY` | Reads and modifies Do Not Disturb (`NotificationManager.setInterruptionFilter`) states. |
+| `android.permission.WRITE_SETTINGS` | Modifies system screen brightness level and Adaptive/Manual brightness mode for the `Change Screen Brightness` action. |
 | `android.permission.VIBRATE` | Triggers haptic vibration feedback when configured in `Make a Sound` actions. |
 | `android.permission.ACCESS_FINE_LOCATION` | Evaluates precise GPS coordinates for Geofence triggers/conditions and Wi-Fi SSID resolution. |
 | `android.permission.ACCESS_COARSE_LOCATION` | Base cell/network location permission paired with fine location. |

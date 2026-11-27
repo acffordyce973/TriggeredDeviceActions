@@ -13,7 +13,7 @@
 
 ## 🏗️ Directory Structure
 - `app/src/main/java/com/antigravity/triggeredactions/`
-	- `model/`: Polymorphic `@Serializable` models (`ActionModels.kt`) for `ActionSet`, all 16 `SetTrigger`s, all 13 `SetCondition`s, all 11 `SetAction`s, `GeofenceArea`, `WebhookProfile`, `ShareXProfile`, `TriggerEventContext`, `LiveDeviceState`, `ExecutionLogEntry`, and `AppSettings`.
+	- `model/`: Polymorphic `@Serializable` models (`ActionModels.kt`) for `ActionSet`, all 17 `SetTrigger`s, all 13 `SetCondition`s, all 12 `SetAction`s, `GeofenceArea`, `WebhookProfile`, `ShareXProfile`, `TriggerEventContext`, `LiveDeviceState`, `ExecutionLogEntry`, and `AppSettings`.
 	- `data/`: `ActionsRepository.kt` (JSON config persistence, backup import/export, Triggered Live Wallpaper geofence import, starter templates), `ExecutionLogStore.kt`, `ContactLookupHelper.kt`, and `InstalledAppsRepository.kt`.
 	- `engine/`: `TriggerDispatcher.kt`, `ConditionEvaluator.kt`, `ContextTemplateEngine.kt` (OTP & ReDoS-safe regex extractor + variable substitution), `ActionExecutor.kt`, `BackgroundLaunchBridge.kt`, `DeviceStateCollector.kt`, and `ConflictAndAuditDetector.kt`.
 	- `network/`: `WebhookClient.kt` (Discord rich embeds + generic HTTP REST) and `ShareXClient.kt` (`.sxcu` parser/importer + text/file multipart uploader compatible with `WebServer/Shared`).

@@ -433,7 +433,7 @@ class ActionsRepository private constructor(private val appContext: Context) {
 
 		/**
 		 * Builds the initial out-of-the-box configuration containing a default Home geofence and
-		 * 5 pre-built starter templates (disabled by default until customized and enabled by the user).
+		 * 6 pre-built starter templates (disabled by default until customized and enabled by the user).
 		 *
 		 * @return Default [ActionsConfigData].
 		 */
@@ -451,10 +451,10 @@ class ActionsRepository private constructor(private val appContext: Context) {
 				ActionSet(
 					stringId = "template_dnd_callback",
 					stringName = "DnD Repeat-Caller Breakthrough",
-					stringDescription = "On incoming call from a known contact while DnD is on: texts caller, ends first call, opens a 20s DnD-off window, then restores DnD.",
+					stringDescription = "On missed call from a known contact while DnD is on: texts caller, opens a 20s DnD-off window so a callback rings, then restores DnD.",
 					boolIsEnabled = false,
 					listTriggers = listOf(
-						SetTrigger.IncomingCallTrigger(
+						SetTrigger.MissedCallTrigger(
 							contactFilterMode = ContactFilterMode.IN_CONTACTS
 						)
 					),
@@ -468,35 +468,53 @@ class ActionsRepository private constructor(private val appContext: Context) {
 							stringMessageTemplate = "My device is currently in Do Not Disturb. Call again within 20 seconds and it will ring.",
 							intRecipientCooldownSeconds = 60
 						),
-						SetAction.EndCallAction(longDelayBeforeEndMs = 300L),
-						SetAction.SetDndAction(targetMode = DndTargetMode.OFF_ALLOW_ALL),
+						SetAction.SetDndAction(
+							targetMode = DndTargetMode.OFF_ALLOW_ALL,
+							boolSetRingerLoudWhenOff = true
+						),
 						SetAction.WaitDelayAction(intDelaySeconds = 20, boolWaitUntilCallEndsFirst = false),
 						SetAction.SetDndAction(targetMode = DndTargetMode.PRIORITY_ONLY)
 					)
 				),
 				ActionSet(
-					stringId = "template_geofence_daytime_dnd",
-					stringName = "Geofence Daytime DnD Off",
-					stringDescription = "When entering or leaving Home between 08:00 and 22:00, disables Do Not Disturb.",
+					stringId = "template_morning_home_loud",
+					stringName = "Morning Home: Loud & DnD Off",
+					stringDescription = "At 08:00 whilst inside the Home geofence, disables Do Not Disturb and sets the ringer to Loud.",
 					boolIsEnabled = false,
 					listTriggers = listOf(
-						SetTrigger.GeofenceTrigger(
-							stringGeofenceId = stringHomeGeoId,
-							transitionMode = GeofenceTransitionMode.BOTH
+						SetTrigger.TimeScheduleTrigger(
+							boolIsInterval = false,
+							intHour = 8,
+							intMinute = 0
 						)
 					),
 					conditionMatchMode = ConditionMatchMode.ALL_AND,
 					listConditions = listOf(
-						SetCondition.TimeCondition(
-							boolUseTimeWindow = true,
-							intStartHour = 8,
-							intStartMinute = 0,
-							intEndHour = 22,
-							intEndMinute = 0
-						)
+						SetCondition.GeofenceCondition(stringGeofenceId = stringHomeGeoId, boolInside = true)
 					),
 					listActions = listOf(
-						SetAction.SetDndAction(targetMode = DndTargetMode.OFF_ALLOW_ALL)
+						SetAction.SetDndAction(
+							targetMode = DndTargetMode.OFF_ALLOW_ALL,
+							boolSetRingerLoudWhenOff = true
+						)
+					)
+				),
+				ActionSet(
+					stringId = "template_night_dnd_on",
+					stringName = "Night: Do Not Disturb On",
+					stringDescription = "At 22:00 every night regardless of location, enables Do Not Disturb.",
+					boolIsEnabled = false,
+					listTriggers = listOf(
+						SetTrigger.TimeScheduleTrigger(
+							boolIsInterval = false,
+							intHour = 22,
+							intMinute = 0
+						)
+					),
+					conditionMatchMode = ConditionMatchMode.ALL_AND,
+					listConditions = emptyList(),
+					listActions = listOf(
+						SetAction.SetDndAction(targetMode = DndTargetMode.PRIORITY_ONLY)
 					)
 				),
 				ActionSet(
@@ -542,10 +560,11 @@ class ActionsRepository private constructor(private val appContext: Context) {
 				ActionSet(
 					stringId = "template_otp_discord_webhook",
 					stringName = "Forward OTP Notification to Discord",
-					stringDescription = "Detects one-time passcodes in incoming notifications and forwards the extracted code via Discord webhook.",
+					stringDescription = "Detects one-time passcodes in incoming notifications (excluding Discord) and forwards the extracted code via Discord webhook.",
 					boolIsEnabled = false,
 					listTriggers = listOf(
 						SetTrigger.NotificationReceivedTrigger(
+							stringExcludedPackages = "com.discord",
 							bodyMatchMode = TextMatchMode.OTP_PRESET
 						)
 					),

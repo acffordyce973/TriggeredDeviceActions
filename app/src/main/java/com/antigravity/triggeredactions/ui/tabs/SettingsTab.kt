@@ -164,6 +164,7 @@ fun SettingsTab(
 	// Live permission flags recomputed whenever ON_RESUME increments intPermRefreshTick
 	val boolHasNotifListener = remember(intPermRefreshTick) { DeviceStateCollector.hasNotificationListenerPermission(objContext) }
 	val boolHasDndAccess = remember(intPermRefreshTick) { DeviceStateCollector.hasDndPolicyPermission(objContext) }
+	val boolHasWriteSettings = remember(intPermRefreshTick) { DeviceStateCollector.hasWriteSettingsPermission(objContext) }
 	val boolHasOverlay = remember(intPermRefreshTick) { DeviceStateCollector.hasOverlayPermission(objContext) }
 	val boolHasUsageAccess = remember(intPermRefreshTick) { DeviceStateCollector.hasUsageStatsPermission(objContext) }
 	val boolHasAllFiles = remember(intPermRefreshTick) { DeviceStateCollector.hasAllFilesPermission() }
@@ -252,6 +253,22 @@ fun SettingsTab(
 				stringButtonText = "Grant Do Not Disturb Access",
 				onGrantClick = {
 					objContext.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+				}
+			)
+		}
+
+		item {
+			PermissionStatusCard(
+				stringTitle = "Modify System Settings (Screen Brightness)",
+				stringDescription = "Required for the Change Screen Brightness action to adjust manual brightness percentage or Adaptive Brightness.",
+				boolGranted = boolHasWriteSettings,
+				stringButtonText = "Grant Modify System Settings",
+				onGrantClick = {
+					val intentWriteSettings = Intent(
+						Settings.ACTION_MANAGE_WRITE_SETTINGS,
+						Uri.parse("package:${objContext.packageName}")
+					)
+					objContext.startActivity(intentWriteSettings)
 				}
 			)
 		}

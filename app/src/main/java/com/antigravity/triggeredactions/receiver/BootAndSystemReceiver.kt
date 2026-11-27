@@ -55,6 +55,14 @@ class BootAndSystemReceiver : BroadcastReceiver() {
 						objSettings.boolMasterEngineEnabled
 					)
 					TriggeredMonitorService.synchronizeMonitorService(objAppCtx, listSets, objSettings)
+
+					if ((stringAction == Intent.ACTION_BOOT_COMPLETED ||
+							stringAction == "android.intent.action.QUICKBOOT_POWERON") &&
+						!boolBootDispatched
+					) {
+						boolBootDispatched = true
+						TriggerDispatcher.onDeviceBooted(objAppCtx)
+					}
 				}
 			} catch (objException: Exception) {
 				Log.e(
@@ -70,5 +78,8 @@ class BootAndSystemReceiver : BroadcastReceiver() {
 	companion object {
 		private const val TAG = "BootAndSystemReceiver"
 		const val ACTION_EXTERNAL_TRIGGER = "com.antigravity.triggeredactions.ACTION_EXTERNAL_TRIGGER"
+
+		@Volatile
+		private var boolBootDispatched: Boolean = false
 	}
 }

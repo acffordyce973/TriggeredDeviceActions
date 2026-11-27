@@ -31,6 +31,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -55,7 +56,7 @@ import com.antigravity.triggeredactions.model.SystemActivityPreset
 import com.antigravity.triggeredactions.model.WebhookProfile
 
 /**
- * Modal selector listing all 11 supported sequential Action types.
+ * Modal selector listing all 12 supported sequential Action types.
  */
 @Composable
 fun AddActionTypeDialog(
@@ -71,6 +72,7 @@ fun AddActionTypeDialog(
 		"Make a Sound / Vibrate" to { SetAction.PlaySoundAction() },
 		"Send Notification" to { SetAction.SendNotificationAction() },
 		"Set Do Not Disturb (DnD)" to { SetAction.SetDndAction() },
+		"Change Screen Brightness" to { SetAction.SetBrightnessAction() },
 		"End / Reject Active Phone Call" to { SetAction.EndCallAction() },
 		"Send SMS Message" to { SetAction.SendSmsAction() },
 		"Send Webhook (Discord / HTTP)" to { SetAction.SendWebhookAction(stringProfileId = stringDefaultWebhook) },
@@ -250,6 +252,63 @@ fun ActionStepEditorCard(
 								onClick = { onUpdate(objAction.copy(targetMode = dnd)) },
 								label = { Text(dnd.name) }
 							)
+						}
+					}
+					if (objAction.targetMode == DndTargetMode.OFF_ALLOW_ALL) {
+						Row(
+							modifier = Modifier.fillMaxWidth(),
+							verticalAlignment = Alignment.CenterVertically,
+							horizontalArrangement = Arrangement.SpaceBetween
+						) {
+							Column(modifier = Modifier.weight(1f)) {
+								Text("Also Set Ringer Mode to Loud (Normal)", fontWeight = FontWeight.SemiBold)
+								Text(
+									"Ensures the phone switches out of Vibrate/Silent into audible Loud mode when disabling DnD.",
+									style = MaterialTheme.typography.bodySmall,
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
+							Switch(
+								checked = objAction.boolSetRingerLoudWhenOff,
+								onCheckedChange = { onUpdate(objAction.copy(boolSetRingerLoudWhenOff = it)) }
+							)
+						}
+					}
+				}
+
+				is SetAction.SetBrightnessAction -> {
+					Row(
+						modifier = Modifier.fillMaxWidth(),
+						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = Arrangement.SpaceBetween
+					) {
+						Text("Adaptive / Auto Brightness", fontWeight = FontWeight.SemiBold)
+						Switch(
+							checked = objAction.boolAutoBrightness,
+							onCheckedChange = { onUpdate(objAction.copy(boolAutoBrightness = it)) }
+						)
+					}
+					if (!objAction.boolAutoBrightness) {
+						Text(
+							text = "Screen Brightness: ${objAction.intBrightnessPercent}%",
+							style = MaterialTheme.typography.labelLarge
+						)
+						Slider(
+							value = objAction.intBrightnessPercent.toFloat(),
+							onValueChange = { floatVal ->
+								onUpdate(objAction.copy(intBrightnessPercent = floatVal.toInt().coerceIn(0, 100)))
+							},
+							valueRange = 0f..100f,
+							modifier = Modifier.fillMaxWidth()
+						)
+						FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+							listOf(10, 25, 50, 75, 100).forEach { intPreset ->
+								FilterChip(
+									selected = objAction.intBrightnessPercent == intPreset,
+									onClick = { onUpdate(objAction.copy(intBrightnessPercent = intPreset)) },
+									label = { Text("$intPreset%") }
+								)
+							}
 						}
 					}
 				}

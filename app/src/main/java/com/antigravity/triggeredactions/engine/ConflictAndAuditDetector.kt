@@ -6,6 +6,9 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import com.antigravity.triggeredactions.model.ActionSet
+import com.antigravity.triggeredactions.model.ChargingSourceFilter
+import com.antigravity.triggeredactions.model.ConditionMatchMode
+import com.antigravity.triggeredactions.model.GeofenceTransitionMode
 import com.antigravity.triggeredactions.model.RuleAuditIssue
 import com.antigravity.triggeredactions.model.SetAction
 import com.antigravity.triggeredactions.model.SetCondition
@@ -15,8 +18,8 @@ import com.antigravity.triggeredactions.model.TextMatchMode
 import com.antigravity.triggeredactions.model.WebhookProfile
 
 /**
- * Performs static analysis across Action Sets to flag missing OS permissions, contradictory actions,
- * self-trigger notification loops, and incomplete action parameters.
+ * Performs static analysis across Action Sets to flag missing OS permissions, genuinely co-firing contradictory
+ * actions, self-trigger notification loops, and incomplete action parameters.
  */
 object ConflictAndAuditDetector {
 
@@ -63,7 +66,6 @@ object ConflictAndAuditDetector {
 				)
 			}
 
-			// Self-notification loop check
 			val boolHasUnfilteredNotifTrigger = objSet.listTriggers.any {
 				it is SetTrigger.NotificationReceivedTrigger && it.stringPackageFilter.isBlank()
 			}
@@ -74,13 +76,12 @@ object ConflictAndAuditDetector {
 						stringIssueId = "notif_loop_${objSet.stringId}",
 						stringTitle = "${objSet.stringName}: Broad Notification Filter",
 						stringDescription = "Triggers on notifications from any app while also posting notifications (self-package notifications are automatically ignored, but cross-app notification echoes could still occur).",
-						stringRecommendation = "Consider restricting the Notification Trigger to specific target app package(s).",
+						stringRecommendation = "Consider restricting or excluding packages on the Notification Trigger.",
 						boolIsError = false
 					)
 				)
 			}
 
-			// Action configuration completeness checks
 			for (objAction in objSet.listActions) {
 				when (objAction) {
 					is SetAction.SendWebhookAction -> {
@@ -135,25 +136,44 @@ object ConflictAndAuditDetector {
 			}
 		}
 
-		// Pairwise contradictory DND conflict detection
+		// Pairwise contradictory DND & Brightness conflict detection (only when triggers can genuinely co-fire AND conditions overlap)
 		for (intI in listEnabledSets.indices) {
 			for (intJ in (intI + 1) until listEnabledSets.size) {
 				val objSetA = listEnabledSets[intI]
 				val objSetB = listEnabledSets[intJ]
+				if (!setsHaveCoFiringTrigger(objSetA, objSetB) || !conditionsPotentiallyOverlap(objSetA, objSetB)) {
+					continue
+				}
+
 				val objDndA = objSetA.listActions.filterIsInstance<SetAction.SetDndAction>().lastOrNull()
 				val objDndB = objSetB.listActions.filterIsInstance<SetAction.SetDndAction>().lastOrNull()
 				if (objDndA != null && objDndB != null && objDndA.targetMode != objDndB.targetMode) {
-					if (setsShareTriggerFamily(objSetA, objSetB) && conditionsPotentiallyOverlap(objSetA, objSetB)) {
-						listIssues.add(
-							RuleAuditIssue(
-								stringIssueId = "dnd_conflict_${objSetA.stringId}_${objSetB.stringId}",
-								stringTitle = "Conflicting DnD Actions: ${objSetA.stringName} ⇄ ${objSetB.stringName}",
-								stringDescription = "Both sets can trigger on the same event family with overlapping conditions, but set final Do Not Disturb states to ${objDndA.targetMode.name} vs ${objDndB.targetMode.name}.",
-								stringRecommendation = "Add mutually exclusive Time, Geofence, or DnD conditions so only one set matches at a time.",
-								boolIsError = true
-							)
+					listIssues.add(
+						RuleAuditIssue(
+							stringIssueId = "dnd_conflict_${objSetA.stringId}_${objSetB.stringId}",
+							stringTitle = "Conflicting DnD Actions: ${objSetA.stringName} ⇄ ${objSetB.stringName}",
+							stringDescription = "Both sets can fire at the exact same moment with overlapping conditions, but set final Do Not Disturb states to ${objDndA.targetMode.name} vs ${objDndB.targetMode.name}.",
+							stringRecommendation = "Use distinct trigger times/events or mutually exclusive Time, Geofence, or DnD conditions.",
+							boolIsError = true
 						)
-					}
+					)
+				}
+
+				val objBrightA = objSetA.listActions.filterIsInstance<SetAction.SetBrightnessAction>().lastOrNull()
+				val objBrightB = objSetB.listActions.filterIsInstance<SetAction.SetBrightnessAction>().lastOrNull()
+				if (objBrightA != null && objBrightB != null &&
+					(objBrightA.boolAutoBrightness != objBrightB.boolAutoBrightness ||
+						(!objBrightA.boolAutoBrightness && objBrightA.intBrightnessPercent != objBrightB.intBrightnessPercent))
+				) {
+					listIssues.add(
+						RuleAuditIssue(
+							stringIssueId = "brightness_conflict_${objSetA.stringId}_${objSetB.stringId}",
+							stringTitle = "Conflicting Brightness Actions: ${objSetA.stringName} ⇄ ${objSetB.stringName}",
+							stringDescription = "Both sets can fire simultaneously with overlapping conditions while setting different screen brightness targets.",
+							stringRecommendation = "Narrow trigger times or add non-overlapping conditions.",
+							boolIsError = true
+						)
+					)
 				}
 			}
 		}
@@ -161,23 +181,171 @@ object ConflictAndAuditDetector {
 		return listIssues.distinctBy { it.stringIssueId }
 	}
 
-	private fun setsShareTriggerFamily(objSetA: ActionSet, objSetB: ActionSet): Boolean {
-		val setClassesA = objSetA.listTriggers.map { it::class }.toSet()
-		val setClassesB = objSetB.listTriggers.map { it::class }.toSet()
-		return setClassesA.intersect(setClassesB).isNotEmpty()
+
+	// ---- Trigger Co-Firing & Condition Overlap Solvers ----
+
+	private fun setsHaveCoFiringTrigger(objSetA: ActionSet, objSetB: ActionSet): Boolean {
+		for (objTrigA in objSetA.listTriggers) {
+			for (objTrigB in objSetB.listTriggers) {
+				if (triggersCanCoFire(objTrigA, objTrigB)) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	private fun triggersCanCoFire(objTrigA: SetTrigger, objTrigB: SetTrigger): Boolean {
+		return when {
+			objTrigA is SetTrigger.TimeScheduleTrigger && objTrigB is SetTrigger.TimeScheduleTrigger -> {
+				if (!objTrigA.boolIsInterval && !objTrigB.boolIsInterval) {
+					if (objTrigA.intHour != objTrigB.intHour || objTrigA.intMinute != objTrigB.intMinute) {
+						false
+					} else {
+						val setDaysA = if (objTrigA.listDaysOfWeek.isEmpty()) (1..7).toSet() else objTrigA.listDaysOfWeek.toSet()
+						val setDaysB = if (objTrigB.listDaysOfWeek.isEmpty()) (1..7).toSet() else objTrigB.listDaysOfWeek.toSet()
+						setDaysA.intersect(setDaysB).isNotEmpty()
+					}
+				} else {
+					true
+				}
+			}
+
+			objTrigA is SetTrigger.GeofenceTrigger && objTrigB is SetTrigger.GeofenceTrigger -> {
+				val boolSameGeo = objTrigA.stringGeofenceId.isBlank() ||
+					objTrigB.stringGeofenceId.isBlank() ||
+					objTrigA.stringGeofenceId == objTrigB.stringGeofenceId
+				val boolOverlapTransition = objTrigA.transitionMode == GeofenceTransitionMode.BOTH ||
+					objTrigB.transitionMode == GeofenceTransitionMode.BOTH ||
+					objTrigA.transitionMode == objTrigB.transitionMode
+				boolSameGeo && boolOverlapTransition
+			}
+
+			objTrigA is SetTrigger.ChargingStateTrigger && objTrigB is SetTrigger.ChargingStateTrigger -> {
+				if (objTrigA.boolOnChargingConnected != objTrigB.boolOnChargingConnected) false
+				else !objTrigA.boolOnChargingConnected ||
+					objTrigA.sourceFilter == ChargingSourceFilter.ANY ||
+					objTrigB.sourceFilter == ChargingSourceFilter.ANY ||
+					objTrigA.sourceFilter == objTrigB.sourceFilter
+			}
+
+			objTrigA is SetTrigger.ScreenStateTrigger && objTrigB is SetTrigger.ScreenStateTrigger -> {
+				objTrigA.boolOnScreenOn == objTrigB.boolOnScreenOn
+			}
+
+			objTrigA is SetTrigger.DeviceLockTrigger && objTrigB is SetTrigger.DeviceLockTrigger -> {
+				objTrigA.boolOnUnlocked == objTrigB.boolOnUnlocked
+			}
+
+			objTrigA is SetTrigger.WifiTrigger && objTrigB is SetTrigger.WifiTrigger -> {
+				objTrigA.boolOnConnected == objTrigB.boolOnConnected
+			}
+
+			objTrigA is SetTrigger.MobileDataTrigger && objTrigB is SetTrigger.MobileDataTrigger -> {
+				objTrigA.boolOnConnected == objTrigB.boolOnConnected
+			}
+
+			objTrigA is SetTrigger.BluetoothTrigger && objTrigB is SetTrigger.BluetoothTrigger -> {
+				objTrigA.boolOnConnected == objTrigB.boolOnConnected
+			}
+
+			objTrigA is SetTrigger.OngoingCallTrigger && objTrigB is SetTrigger.OngoingCallTrigger -> {
+				objTrigA.callDirection == objTrigB.callDirection ||
+					objTrigA.callDirection == com.antigravity.triggeredactions.model.CallEventDirection.ANY_ONGOING ||
+					objTrigB.callDirection == com.antigravity.triggeredactions.model.CallEventDirection.ANY_ONGOING
+			}
+
+			else -> objTrigA::class == objTrigB::class
+		}
 	}
 
 	private fun conditionsPotentiallyOverlap(objSetA: ActionSet, objSetB: ActionSet): Boolean {
 		if (objSetA.listConditions.isEmpty() || objSetB.listConditions.isEmpty()) return true
-		val objGeoA = objSetA.listConditions.filterIsInstance<SetCondition.GeofenceCondition>().singleOrNull()
-		val objGeoB = objSetB.listConditions.filterIsInstance<SetCondition.GeofenceCondition>().singleOrNull()
-		if (objGeoA != null && objGeoB != null && objGeoA.stringGeofenceId == objGeoB.stringGeofenceId) {
-			val boolEffectiveInsideA = if (objGeoA.boolInvert) !objGeoA.boolInside else objGeoA.boolInside
-			val boolEffectiveInsideB = if (objGeoB.boolInvert) !objGeoB.boolInside else objGeoB.boolInside
-			if (boolEffectiveInsideA != boolEffectiveInsideB) return false
+		if (objSetA.conditionMatchMode != ConditionMatchMode.ALL_AND ||
+			objSetB.conditionMatchMode != ConditionMatchMode.ALL_AND
+		) {
+			return true
 		}
+
+		// 1. Disjoint Geofence Inside vs Outside check
+		for (objGeoA in objSetA.listConditions.filterIsInstance<SetCondition.GeofenceCondition>()) {
+			for (objGeoB in objSetB.listConditions.filterIsInstance<SetCondition.GeofenceCondition>()) {
+				if (objGeoA.stringGeofenceId.isNotBlank() && objGeoA.stringGeofenceId == objGeoB.stringGeofenceId) {
+					val boolInsideA = if (objGeoA.boolInvert) !objGeoA.boolInside else objGeoA.boolInside
+					val boolInsideB = if (objGeoB.boolInvert) !objGeoB.boolInside else objGeoB.boolInside
+					if (boolInsideA != boolInsideB) return false
+				}
+			}
+		}
+
+		// 2. Exact 1440-minute / 7-day / 12-month TimeCondition intersection solver
+		val listTimeA = objSetA.listConditions.filterIsInstance<SetCondition.TimeCondition>()
+		val listTimeB = objSetB.listConditions.filterIsInstance<SetCondition.TimeCondition>()
+		if (listTimeA.isNotEmpty() && listTimeB.isNotEmpty()) {
+			val boolAnyMinuteMatchesBoth = (0 until 1440).any { intMinuteOfDay ->
+				val intH = intMinuteOfDay / 60
+				val intM = intMinuteOfDay % 60
+				listTimeA.all { evaluateTimeWindowOnly(it, intH, intM) } &&
+					listTimeB.all { evaluateTimeWindowOnly(it, intH, intM) }
+			}
+			val boolAnyDayMatchesBoth = (1..7).any { intDow ->
+				listTimeA.all { evaluateDayOnly(it, intDow) } && listTimeB.all { evaluateDayOnly(it, intDow) }
+			}
+			val boolAnyMonthMatchesBoth = (1..12).any { intMonth ->
+				listTimeA.all { evaluateMonthOnly(it, intMonth) } && listTimeB.all { evaluateMonthOnly(it, intMonth) }
+			}
+			if (!boolAnyMinuteMatchesBoth || !boolAnyDayMatchesBoth || !boolAnyMonthMatchesBoth) {
+				return false
+			}
+		}
+
+		// 3. Disjoint boolean state conditions (Screen, Lock, Charging, Wi-Fi, Mobile Data)
+		val objScreenA = objSetA.listConditions.filterIsInstance<SetCondition.ScreenStateCondition>().singleOrNull()
+		val objScreenB = objSetB.listConditions.filterIsInstance<SetCondition.ScreenStateCondition>().singleOrNull()
+		if (objScreenA != null && objScreenB != null) {
+			val boolEffA = if (objScreenA.boolInvert) !objScreenA.boolRequireScreenOn else objScreenA.boolRequireScreenOn
+			val boolEffB = if (objScreenB.boolInvert) !objScreenB.boolRequireScreenOn else objScreenB.boolRequireScreenOn
+			if (boolEffA != boolEffB) return false
+		}
+
+		val objLockA = objSetA.listConditions.filterIsInstance<SetCondition.DeviceUnlockedCondition>().singleOrNull()
+		val objLockB = objSetB.listConditions.filterIsInstance<SetCondition.DeviceUnlockedCondition>().singleOrNull()
+		if (objLockA != null && objLockB != null) {
+			val boolEffA = if (objLockA.boolInvert) !objLockA.boolRequireUnlocked else objLockA.boolRequireUnlocked
+			val boolEffB = if (objLockB.boolInvert) !objLockB.boolRequireUnlocked else objLockB.boolRequireUnlocked
+			if (boolEffA != boolEffB) return false
+		}
+
+		val objChargeA = objSetA.listConditions.filterIsInstance<SetCondition.ChargingCondition>().singleOrNull()
+		val objChargeB = objSetB.listConditions.filterIsInstance<SetCondition.ChargingCondition>().singleOrNull()
+		if (objChargeA != null && objChargeB != null &&
+			objChargeA.sourceFilter == ChargingSourceFilter.ANY && objChargeB.sourceFilter == ChargingSourceFilter.ANY
+		) {
+			val boolEffA = if (objChargeA.boolInvert) !objChargeA.boolRequireCharging else objChargeA.boolRequireCharging
+			val boolEffB = if (objChargeB.boolInvert) !objChargeB.boolRequireCharging else objChargeB.boolRequireCharging
+			if (boolEffA != boolEffB) return false
+		}
+
 		return true
 	}
+
+	private fun evaluateTimeWindowOnly(objCond: SetCondition.TimeCondition, intHour: Int, intMinute: Int): Boolean {
+		val boolRaw = objCond.isWithinTimeWindow(intHour, intMinute)
+		return if (objCond.boolInvert) !boolRaw else boolRaw
+	}
+
+	private fun evaluateDayOnly(objCond: SetCondition.TimeCondition, intDow: Int): Boolean {
+		val boolRaw = objCond.listDaysOfWeek.isEmpty() || objCond.listDaysOfWeek.contains(intDow)
+		return if (objCond.boolInvert && !objCond.boolUseTimeWindow) !boolRaw else boolRaw
+	}
+
+	private fun evaluateMonthOnly(objCond: SetCondition.TimeCondition, intMonth: Int): Boolean {
+		val boolRaw = objCond.listMonths.isEmpty() || objCond.listMonths.contains(intMonth)
+		return if (objCond.boolInvert && !objCond.boolUseTimeWindow) !boolRaw else boolRaw
+	}
+
+
+	// ---- Live Permission Checks ----
 
 	private fun auditLivePermissionsForSet(
 		objContext: Context,
@@ -255,6 +423,18 @@ object ConflictAndAuditDetector {
 					stringTitle = "${objSet.stringName}: Do Not Disturb Access Needed",
 					stringDescription = "Set DnD action requires Notification Policy (Do Not Disturb) access.",
 					stringRecommendation = "Grant Do Not Disturb Access in the Settings tab.",
+					boolIsError = true
+				)
+			)
+		}
+
+		if (objSet.listActions.any { it is SetAction.SetBrightnessAction } && !DeviceStateCollector.hasWriteSettingsPermission(objContext)) {
+			listIssues.add(
+				RuleAuditIssue(
+					stringIssueId = "perm_writesettings_${objSet.stringId}",
+					stringTitle = "${objSet.stringName}: Modify System Settings Needed",
+					stringDescription = "Change Brightness action requires 'Modify system settings' (WRITE_SETTINGS) access.",
+					stringRecommendation = "Grant Modify System Settings in the Settings tab.",
 					boolIsError = true
 				)
 			)

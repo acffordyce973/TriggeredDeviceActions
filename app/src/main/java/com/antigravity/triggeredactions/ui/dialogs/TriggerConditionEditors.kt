@@ -61,7 +61,7 @@ import java.util.Locale
 // ---- Add Trigger & Add Condition Modals ----
 
 /**
- * Modal selector listing all 16 supported trigger types.
+ * Modal selector listing all 17 supported trigger types.
  */
 @Composable
 fun AddTriggerTypeDialog(
@@ -73,6 +73,7 @@ fun AddTriggerTypeDialog(
 	val listOptions: List<Pair<String, () -> SetTrigger>> = listOf(
 		"Geofence Location (Enter / Exit)" to { SetTrigger.GeofenceTrigger(stringGeofenceId = stringDefaultGeoId) },
 		"Time (Clock Schedule or Interval)" to { SetTrigger.TimeScheduleTrigger() },
+		"Device Booted (Power On / Restart)" to { SetTrigger.DeviceBootedTrigger() },
 		"Device Unlocked / Locked" to { SetTrigger.DeviceLockTrigger(boolOnUnlocked = true) },
 		"Screen On / Off" to { SetTrigger.ScreenStateTrigger(boolOnScreenOn = true) },
 		"Wi-Fi Connected / Disconnected" to { SetTrigger.WifiTrigger(boolOnConnected = true) },
@@ -181,6 +182,7 @@ fun TriggerEditorCard(
 ) {
 	val objContext = LocalContext.current
 	var boolShowAppPicker by remember { mutableStateOf(false) }
+	var boolShowExcludeAppPicker by remember { mutableStateOf(false) }
 	var boolShowBtPicker by remember { mutableStateOf(false) }
 
 	Card(
@@ -550,6 +552,11 @@ fun TriggerEditorCard(
 						)
 						OutlinedButton(onClick = { boolShowAppPicker = true }) { Text("Pick") }
 					}
+					ExcludedAppsEditorRow(
+						stringExcludedCsv = objTrigger.stringExcludedPackages,
+						onPickExcludeApp = { boolShowExcludeAppPicker = true },
+						onChanged = { onUpdate(objTrigger.copy(stringExcludedPackages = it)) }
+					)
 					TextMatchEditorRow(
 						stringLabel = "Notification Body Match",
 						matchMode = objTrigger.bodyMatchMode,
@@ -569,6 +576,22 @@ fun TriggerEditorCard(
 							onAppSelected = {
 								onUpdate(objTrigger.copy(stringPackageFilter = it.stringPackageName))
 								boolShowAppPicker = false
+							}
+						)
+					}
+					if (boolShowExcludeAppPicker) {
+						InstalledAppPickerDialog(
+							onDismiss = { boolShowExcludeAppPicker = false },
+							onAppSelected = {
+								onUpdate(
+									objTrigger.copy(
+										stringExcludedPackages = appendPackageToCsv(
+											objTrigger.stringExcludedPackages,
+											it.stringPackageName
+										)
+									)
+								)
+								boolShowExcludeAppPicker = false
 							}
 						)
 					}
@@ -594,6 +617,11 @@ fun TriggerEditorCard(
 						)
 						OutlinedButton(onClick = { boolShowAppPicker = true }) { Text("Pick") }
 					}
+					ExcludedAppsEditorRow(
+						stringExcludedCsv = objTrigger.stringExcludedPackages,
+						onPickExcludeApp = { boolShowExcludeAppPicker = true },
+						onChanged = { onUpdate(objTrigger.copy(stringExcludedPackages = it)) }
+					)
 					if (boolShowAppPicker) {
 						InstalledAppPickerDialog(
 							onDismiss = { boolShowAppPicker = false },
@@ -603,6 +631,41 @@ fun TriggerEditorCard(
 							}
 						)
 					}
+					if (boolShowExcludeAppPicker) {
+						InstalledAppPickerDialog(
+							onDismiss = { boolShowExcludeAppPicker = false },
+							onAppSelected = {
+								onUpdate(
+									objTrigger.copy(
+										stringExcludedPackages = appendPackageToCsv(
+											objTrigger.stringExcludedPackages,
+											it.stringPackageName
+										)
+									)
+								)
+								boolShowExcludeAppPicker = false
+							}
+						)
+					}
+				}
+
+				is SetTrigger.DeviceBootedTrigger -> {
+					Text(
+						"Runs automatically after the device powers on or finishes rebooting.",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant
+					)
+					OutlinedTextField(
+						value = objTrigger.intBootDelaySeconds.toString(),
+						onValueChange = { s ->
+							val intSecs = s.filter { it.isDigit() }.toIntOrNull()?.coerceIn(0, 3600) ?: 0
+							onUpdate(objTrigger.copy(intBootDelaySeconds = intSecs))
+						},
+						label = { Text("Optional Post-Boot Delay (Seconds)") },
+						keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+						singleLine = true,
+						modifier = Modifier.fillMaxWidth()
+					)
 				}
 			}
 		}
@@ -625,6 +688,7 @@ fun ConditionEditorCard(
 ) {
 	val objContext = LocalContext.current
 	var boolShowAppPicker by remember { mutableStateOf(false) }
+	var boolShowExcludeAppPicker by remember { mutableStateOf(false) }
 	var boolShowBtPicker by remember { mutableStateOf(false) }
 
 	fun toggleInvert(boolInv: Boolean): SetCondition = when (objCondition) {
@@ -1041,6 +1105,56 @@ private fun ContactFilterEditor(
 			singleLine = true,
 			modifier = Modifier.fillMaxWidth()
 		)
+	}
+}
+
+private fun appendPackageToCsv(stringCurrentCsv: String, stringNewPackage: String): String {
+	val listExisting = stringCurrentCsv
+		.split(',', ';')
+		.map { it.trim() }
+		.filter { it.isNotEmpty() }
+	if (listExisting.any { it.equals(stringNewPackage, ignoreCase = true) }) {
+		return listExisting.joinToString(", ")
+	}
+	return (listExisting + stringNewPackage).joinToString(", ")
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ExcludedAppsEditorRow(
+	stringExcludedCsv: String,
+	onPickExcludeApp: () -> Unit,
+	onChanged: (String) -> Unit
+) {
+	val listExcluded = remember(stringExcludedCsv) {
+		stringExcludedCsv
+			.split(',', ';')
+			.map { it.trim() }
+			.filter { it.isNotEmpty() }
+	}
+	Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+		OutlinedTextField(
+			value = stringExcludedCsv,
+			onValueChange = onChanged,
+			label = { Text("Excluded Apps (comma-separated, e.g. com.discord)") },
+			singleLine = true,
+			modifier = Modifier.weight(1f)
+		)
+		OutlinedButton(onClick = onPickExcludeApp) { Text("Exclude App") }
+	}
+	if (listExcluded.isNotEmpty()) {
+		FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+			listExcluded.forEach { stringPkg ->
+				FilterChip(
+					selected = true,
+					onClick = {
+						val listRemaining = listExcluded.filterNot { it.equals(stringPkg, ignoreCase = true) }
+						onChanged(listRemaining.joinToString(", "))
+					},
+					label = { Text("✕ $stringPkg", style = MaterialTheme.typography.labelSmall) }
+				)
+			}
+		}
 	}
 }
 

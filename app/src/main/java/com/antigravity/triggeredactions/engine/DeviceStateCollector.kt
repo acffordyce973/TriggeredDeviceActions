@@ -520,6 +520,16 @@ object DeviceStateCollector {
 	}
 
 	/**
+	 * Checks whether Modify System Settings (`WRITE_SETTINGS`) is granted for changing screen brightness.
+	 *
+	 * @param objContext Android context.
+	 * @return True if `Settings.System.canWrite` is allowed.
+	 */
+	fun hasWriteSettingsPermission(objContext: Context): Boolean {
+		return Settings.System.canWrite(objContext)
+	}
+
+	/**
 	 * Checks whether All Files Access (`MANAGE_EXTERNAL_STORAGE`) is granted on Android 11+.
 	 *
 	 * @return True if granted or running on Android 10 (API 29).
@@ -556,6 +566,23 @@ object DeviceStateCollector {
 	fun isIgnoringBatteryOptimizations(objContext: Context): Boolean {
 		val objPowerMgr = objContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
 		return objPowerMgr?.isIgnoringBatteryOptimizations(objContext.packageName) == true
+	}
+
+	/**
+	 * Counts how many core automation permissions on the Settings screen are currently ungranted.
+	 *
+	 * @param objContext Android context.
+	 * @return Number of ungranted core permission groups.
+	 */
+	fun countMissingCorePermissions(objContext: Context): Int {
+		var intMissing = 0
+		if (!hasDndPolicyPermission(objContext)) intMissing++
+		if (!hasNotificationListenerPermission(objContext)) intMissing++
+		if (!hasOverlayPermission(objContext)) intMissing++
+		if (!hasUsageStatsPermission(objContext)) intMissing++
+		if (!hasForegroundLocationPermission(objContext) || !hasBackgroundLocationPermission(objContext)) intMissing++
+		if (!isIgnoringBatteryOptimizations(objContext)) intMissing++
+		return intMissing
 	}
 
 	/**

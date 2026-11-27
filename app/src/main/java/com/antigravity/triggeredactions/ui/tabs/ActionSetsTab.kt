@@ -90,10 +90,12 @@ fun ActionSetsTab(
 		"SMS",
 		"Notifications",
 		"Geofence",
+		"Device Boot",
 		"Charging / Battery",
 		"Wi-Fi / Data / BT",
 		"Webhooks / ShareX",
 		"DnD Control",
+		"Brightness",
 		"App Launch"
 	)
 
@@ -118,6 +120,7 @@ fun ActionSetsTab(
 					}
 					"Geofence" -> objSet.listTriggers.any { it is SetTrigger.GeofenceTrigger } ||
 						objSet.listConditions.any { it is com.antigravity.triggeredactions.model.SetCondition.GeofenceCondition }
+					"Device Boot" -> objSet.listTriggers.any { it is SetTrigger.DeviceBootedTrigger }
 					"Charging / Battery" -> objSet.listTriggers.any {
 						it is SetTrigger.ChargingStateTrigger || it is SetTrigger.BatteryStatusTrigger
 					}
@@ -128,6 +131,7 @@ fun ActionSetsTab(
 						it is SetAction.SendWebhookAction || it is SetAction.ShareXUploadAction
 					}
 					"DnD Control" -> objSet.listActions.any { it is SetAction.SetDndAction }
+					"Brightness" -> objSet.listActions.any { it is SetAction.SetBrightnessAction }
 					"App Launch" -> objSet.listActions.any {
 						it is SetAction.StartAppAction || it is SetAction.StartAppShortcutAction || it is SetAction.StartAppActivityAction
 					}

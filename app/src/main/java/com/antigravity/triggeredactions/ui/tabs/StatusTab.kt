@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -30,9 +29,11 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -66,8 +67,8 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Status tab displaying Master Engine controls, permission/conflict warnings, live device telemetry,
- * and recent Action Set execution logs.
+ * Status tab displaying permission setup guidance, Master Engine controls, conflict warnings,
+ * live device telemetry, and recent Action Set execution logs.
  */
 @Composable
 fun StatusTab(
@@ -77,10 +78,12 @@ fun StatusTab(
 	listGeofences: List<GeofenceArea>,
 	listAuditIssues: List<RuleAuditIssue>,
 	listExecutionLogs: List<ExecutionLogEntry>,
+	intMissingPermissions: Int = 0,
 	onToggleMasterEngine: (Boolean) -> Unit,
 	onRefreshState: () -> Unit,
 	onClearLogs: () -> Unit,
-	onJumpToRulesTab: () -> Unit
+	onJumpToRulesTab: () -> Unit,
+	onJumpToSettingsTab: () -> Unit = {}
 ) {
 	val objLifecycleOwner = LocalLifecycleOwner.current
 	DisposableEffect(objLifecycleOwner) {
@@ -115,6 +118,50 @@ fun StatusTab(
 			.padding(16.dp),
 		verticalArrangement = Arrangement.spacedBy(16.dp)
 	) {
+		// 0. Prominent Permissions Setup Callout Banner
+		if (intMissingPermissions > 0) {
+			Card(
+				modifier = Modifier.fillMaxWidth(),
+				colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+			) {
+				Column(
+					modifier = Modifier.fillMaxWidth().padding(16.dp),
+					verticalArrangement = Arrangement.spacedBy(10.dp)
+				) {
+					Row(verticalAlignment = Alignment.CenterVertically) {
+						Icon(
+							Icons.Default.Settings,
+							contentDescription = null,
+							tint = MaterialTheme.colorScheme.onTertiaryContainer,
+							modifier = Modifier.size(26.dp)
+						)
+						Spacer(modifier = Modifier.width(10.dp))
+						Column(modifier = Modifier.weight(1f)) {
+							Text(
+								text = "Action Required: Enable Permissions ($intMissingPermissions remaining)",
+								style = MaterialTheme.typography.titleSmall,
+								fontWeight = FontWeight.Bold,
+								color = MaterialTheme.colorScheme.onTertiaryContainer
+							)
+							Text(
+								text = "Open the Settings tab to grant Do Not Disturb, Notification Listener, Telephony/SMS, Location, and System Settings access so your Action Sets can run.",
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onTertiaryContainer
+							)
+						}
+					}
+					Button(
+						onClick = onJumpToSettingsTab,
+						modifier = Modifier.fillMaxWidth()
+					) {
+						Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+						Spacer(modifier = Modifier.width(6.dp))
+						Text("Open Settings to Grant Permissions")
+					}
+				}
+			}
+		}
+
 		// 1. Master Engine Card
 		Card(
 			modifier = Modifier.fillMaxWidth(),

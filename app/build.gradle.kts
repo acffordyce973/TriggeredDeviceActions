@@ -25,8 +25,8 @@ android {
 		applicationId = "com.antigravity.triggeredactions"
 		minSdk = 29
 		targetSdk = 34
-		versionCode = 100
-		versionName = "1.0.0"
+		versionCode = 110
+		versionName = "1.1.0"
 	}
 
 	signingConfigs {

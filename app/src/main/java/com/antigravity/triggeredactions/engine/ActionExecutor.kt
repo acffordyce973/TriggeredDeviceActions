@@ -82,6 +82,7 @@ object ActionExecutor {
 				is SetAction.PlaySoundAction -> executePlaySound(objContext, objAction, objEventContext)
 				is SetAction.SendNotificationAction -> executeSendNotification(objContext, objAction, objEventContext, stringSetName)
 				is SetAction.SetDndAction -> executeSetDnd(objContext, objAction, objEventContext)
+				is SetAction.SetBrightnessAction -> executeSetBrightness(objContext, objAction, objEventContext)
 				is SetAction.EndCallAction -> executeEndCall(objContext, objAction, objEventContext)
 				is SetAction.SendSmsAction -> executeSendSms(objContext, objAction, objEventContext, stringSetId, stringSetName)
 				is SetAction.SendWebhookAction -> executeSendWebhook(objContext, objAction, objEventContext, stringSetName)
@@ -258,12 +259,64 @@ object ActionExecutor {
 		}
 
 		objNotifMgr.setInterruptionFilter(intFilter)
+		if (objAction.targetMode == DndTargetMode.OFF_ALLOW_ALL && objAction.boolSetRingerLoudWhenOff) {
+			runCatching {
+				val objAudio = objContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+				objAudio?.ringerMode = AudioManager.RINGER_MODE_NORMAL
+			}
+		}
 		DeviceStateCollector.refreshDeviceState(objContext)
+		val stringLoudSuffix = if (objAction.targetMode == DndTargetMode.OFF_ALLOW_ALL && objAction.boolSetRingerLoudWhenOff) " (Ringer Loud)" else ""
 		return ActionStepOutcome(
 			boolSuccess = true,
-			stringStepSummary = "Set Do Not Disturb -> ${objAction.targetMode.name}",
+			stringStepSummary = "Set Do Not Disturb -> ${objAction.targetMode.name}$stringLoudSuffix",
 			objUpdatedContext = objEventContext
 		)
+	}
+
+	private fun executeSetBrightness(
+		objContext: Context,
+		objAction: SetAction.SetBrightnessAction,
+		objEventContext: TriggerEventContext
+	): ActionStepOutcome {
+		if (!Settings.System.canWrite(objContext)) {
+			return ActionStepOutcome(
+				boolSuccess = false,
+				stringStepSummary = "Set Brightness failed: Modify System Settings permission not granted",
+				objUpdatedContext = objEventContext
+			)
+		}
+
+		return if (objAction.boolAutoBrightness) {
+			Settings.System.putInt(
+				objContext.contentResolver,
+				Settings.System.SCREEN_BRIGHTNESS_MODE,
+				Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC
+			)
+			ActionStepOutcome(
+				boolSuccess = true,
+				stringStepSummary = "Enabled Adaptive / Auto Brightness",
+				objUpdatedContext = objEventContext
+			)
+		} else {
+			val intClampedPct = objAction.intBrightnessPercent.coerceIn(0, 100)
+			val intRawBrightness = ((intClampedPct * 255) / 100).coerceIn(1, 255)
+			Settings.System.putInt(
+				objContext.contentResolver,
+				Settings.System.SCREEN_BRIGHTNESS_MODE,
+				Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+			)
+			Settings.System.putInt(
+				objContext.contentResolver,
+				Settings.System.SCREEN_BRIGHTNESS,
+				intRawBrightness
+			)
+			ActionStepOutcome(
+				boolSuccess = true,
+				stringStepSummary = "Set Screen Brightness -> $intClampedPct%",
+				objUpdatedContext = objEventContext
+			)
+		}
 	}
 
 	@Suppress("DEPRECATION")

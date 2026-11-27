@@ -1,16 +1,20 @@
 package com.antigravity.triggeredactions.engine
 
 import com.antigravity.triggeredactions.model.ContactFilterMode
+import com.antigravity.triggeredactions.model.DndTargetMode
 import com.antigravity.triggeredactions.model.GeofenceArea
 import com.antigravity.triggeredactions.model.SetAction
 import com.antigravity.triggeredactions.model.SetCondition
 import com.antigravity.triggeredactions.model.SetTrigger
+import com.antigravity.triggeredactions.model.SmsRecipientMode
+import com.antigravity.triggeredactions.model.SystemActivityPreset
 import com.antigravity.triggeredactions.model.TextMatchMode
 import com.antigravity.triggeredactions.model.TriggerEventContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.regex.Pattern
+import kotlin.math.abs
 
 /**
  * Result of matching an input string against a configured [TextMatchMode] filter.
@@ -30,13 +34,43 @@ object ContextTemplateEngine {
 	private const val LONG_REGEX_TIMEOUT_MS = 150L
 
 	private val regexNestedQuantifierGuard = Pattern.compile("(\\([^)]*[+*][^)]*\\))[+*?]")
-	private val regexOtpKeywordHint = Pattern.compile(
-		"\\b(code|otp|passcode|verification|verify|pin|2fa|auth|authenticate|login|security|token|confirm|one[- ]time)\\b",
+
+	// Non-OTP "code" collocations (e.g. "offer code", "promo code", "zip code", "error code") stripped prior to keyword scan
+	private val regexNonAuthCodeCollocations = Pattern.compile(
+		"\\b(offer|promo|promotional|discount|voucher|coupon|gift|referral|invite|basket|checkout|zip|post|postal|area|country|sort|swift|iban|dress|error|exit|status|color|colour|source|bar|qr)\\s+codes?\\b",
 		Pattern.CASE_INSENSITIVE
 	)
-	private val regexOtpCandidate = Pattern.compile(
-		"(?<![\\dA-Za-z/_-])(?<!\\d\\.)(\\d{4,8}|\\d{3}-\\d{3}|[A-Z0-9]{3,4}-[A-Z0-9]{3,4})(?![\\dA-Za-z/_-])(?!\\.\\w)",
+
+	// Promotional / newsletter marketing phrases that invalidate weak generic "code" matches unless strong 2FA phrases exist
+	private val regexMarketingNoise = Pattern.compile(
+		"(\\b\\d{1,2}%\\s*off\\b|\\bin\\s+the\\s+basket\\b|\\bat\\s+checkout\\b|\\bfree\\s+gift\\b|\\bblack\\s+friday\\b|\\bview\\s+this\\s+email\\s+online\\b|\\bunsubscribe\\b|\\boffer\\s+expires\\b)",
 		Pattern.CASE_INSENSITIVE
+	)
+
+	// Strong unambiguous 2FA / authentication phrases
+	private val regexStrongAuthKeyword = Pattern.compile(
+		"\\b(otp|passcode|verification|2fa|two[- ]factor|one[- ]time|authenticator|login\\s+code|security\\s+code|auth(?:entication)?\\s+code|sign[- ]in\\s+code|never\\s+share|do\\s+not\\s+share)\\b",
+		Pattern.CASE_INSENSITIVE
+	)
+
+	// General OTP keyword anchors (used once marketing/promo collocations have been stripped)
+	private val regexOtpKeywordHint = Pattern.compile(
+		"\\b(otp|passcode|verification|verify|2fa|two[- ]factor|one[- ]time|authenticate|security\\s+code|login\\s+code|auth\\s+code|pin|code)\\b",
+		Pattern.CASE_INSENSITIVE
+	)
+
+	// Date & clock patterns stripped so "27th November 2026" or "11:59pm" never leak calendar years or times as OTPs
+	private val regexCalendarDatesAndTimes = Pattern.compile(
+		"(\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\s+\\d{4}\\b" +
+			"|\\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s+\\d{4}\\b" +
+			"|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b" +
+			"|\\b\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:am|pm)?\\b)",
+		Pattern.CASE_INSENSITIVE
+	)
+
+	// Strict candidate shape: 4-8 digits, digit-hyphen-digit, or UPPERCASE-only alphanumeric hyphenated (e.g. G4K-912, G-482910)
+	private val regexOtpCandidate = Pattern.compile(
+		"(?<![\\dA-Za-z/_-])(?<!\\d\\.)(\\d{4,8}|\\d{3,4}-\\d{3,4}|[A-Z]{1,2}-\\d{4,8}|[A-Z0-9]{3,4}-[A-Z0-9]{3,4})(?![\\dA-Za-z/_-])(?!\\.\\w)"
 	)
 
 	/**
@@ -125,8 +159,9 @@ object ContextTemplateEngine {
 	}
 
 	/**
-	 * Extracts a one-time passcode (4–8 digits or hyphenated `123-456` / `ABC-123`) from notification or SMS text.
-	 * Requires either an authentication keyword in the message or a standalone 5–8 digit / hyphenated code.
+	 * Extracts a genuine one-time passcode (4–8 digits or uppercase/numeric hyphenated token like `123-456` / `G4K-912`)
+	 * while filtering out lowercase device hostnames (e.g. `acf-gzf7`), calendar dates (`November 2026`),
+	 * and retail promotional/offer codes (`offer code 33202`, `30% off`).
 	 *
 	 * @param stringText Incoming notification or SMS message body.
 	 * @return [PatternMatchOutcome] containing the extracted OTP code in `stringPrimaryMatch`.
@@ -134,39 +169,69 @@ object ContextTemplateEngine {
 	fun extractOtpFromText(stringText: String): PatternMatchOutcome {
 		if (stringText.isBlank()) return PatternMatchOutcome(boolMatched = false)
 
-		val stringSanitized = stringText.replace(Regex("https?://\\S+"), " ")
-		val boolHasKeyword = regexOtpKeywordHint.matcher(stringSanitized).find()
-		val objMatcher = regexOtpCandidate.matcher(stringSanitized)
+		// 1. Strip URLs, non-auth "promo/offer code" collocations, and calendar date/time strings (preserving length alignment with spaces)
+		var stringCleaned = replaceMatchesWithSpaces(stringText, Pattern.compile("https?://\\S+", Pattern.CASE_INSENSITIVE))
+		stringCleaned = replaceMatchesWithSpaces(stringCleaned, regexNonAuthCodeCollocations)
+		stringCleaned = replaceMatchesWithSpaces(stringCleaned, regexCalendarDatesAndTimes)
 
-		val listCandidates = mutableListOf<String>()
-		while (objMatcher.find()) {
-			val stringToken = objMatcher.group(1) ?: continue
-			// Must contain at least one digit so plain words like "PIN-OUT" are not misclassified
-			if (!stringToken.any { it.isDigit() }) continue
-			// Filter standalone 4-digit calendar years when there is no explicit OTP keyword
+		// 2. Reject retail marketing newsletters unless an unambiguous 2FA phrase is explicitly present
+		val boolHasMarketingNoise = regexMarketingNoise.matcher(stringText).find()
+		val boolHasStrongAuth = regexStrongAuthKeyword.matcher(stringCleaned).find()
+		if (boolHasMarketingNoise && !boolHasStrongAuth) {
+			return PatternMatchOutcome(boolMatched = false)
+		}
+
+		// 3. Require at least one explicit OTP/verification keyword anchor (prevents random alerts/hostnames from triggering)
+		val listKeywordPositions = mutableListOf<Int>()
+		val objKwMatcher = regexOtpKeywordHint.matcher(stringCleaned)
+		while (objKwMatcher.find()) {
+			listKeywordPositions.add(objKwMatcher.start())
+		}
+		if (listKeywordPositions.isEmpty()) {
+			return PatternMatchOutcome(boolMatched = false)
+		}
+
+		// 4. Collect valid candidate tokens and rank by proximity to the nearest OTP keyword
+		val objCandidateMatcher = regexOtpCandidate.matcher(stringCleaned)
+		data class ScoredCandidate(val stringCode: String, val intDistance: Int)
+		val listCandidates = mutableListOf<ScoredCandidate>()
+
+		while (objCandidateMatcher.find()) {
+			val stringToken = objCandidateMatcher.group(1) ?: continue
+			val intDigitCount = stringToken.count { it.isDigit() }
+			// Require at least 2 digits so words/identifiers like "PIN-1" or "AW26-A" are ignored
+			if (intDigitCount < 2) continue
+			// Filter standalone 4-digit plausible years (1990..2035) unless strong 4-digit PIN phrasing is right next to it
 			val intAsYear = stringToken.toIntOrNull()
-			if (!boolHasKeyword && stringToken.length == 4 && intAsYear != null && intAsYear in 1990..2035) {
+			val intPos = objCandidateMatcher.start()
+			val intMinDist = listKeywordPositions.minOf { abs(intPos - it) }
+			if (stringToken.length == 4 && intAsYear != null && intAsYear in 1990..2035 && intMinDist > 25) {
 				continue
 			}
-			listCandidates.add(stringToken)
+			listCandidates.add(ScoredCandidate(stringToken, intMinDist))
 		}
 
 		if (listCandidates.isEmpty()) {
 			return PatternMatchOutcome(boolMatched = false)
 		}
 
-		// If no OTP keyword is present, require at least a 5-8 digit code or hyphenated numeric code to avoid false positives
-		val stringBest = if (boolHasKeyword) {
-			listCandidates.first()
-		} else {
-			listCandidates.firstOrNull { it.length >= 5 || it.contains('-') } ?: return PatternMatchOutcome(boolMatched = false)
-		}
-
+		val stringBest = listCandidates.minBy { it.intDistance }.stringCode
 		return PatternMatchOutcome(
 			boolMatched = true,
 			stringPrimaryMatch = stringBest,
 			listCaptureGroups = listOf(stringBest)
 		)
+	}
+
+	private fun replaceMatchesWithSpaces(stringInput: String, objPattern: Pattern): String {
+		val objMatcher = objPattern.matcher(stringInput)
+		val objChars = stringInput.toCharArray()
+		while (objMatcher.find()) {
+			for (intI in objMatcher.start() until objMatcher.end()) {
+				objChars[intI] = ' '
+			}
+		}
+		return String(objChars)
 	}
 
 	/**
@@ -419,10 +484,16 @@ object ContextTemplateEngine {
 			is SetTrigger.ChargingStateTrigger -> if (objTrigger.boolOnChargingConnected) "Plugged In (${objTrigger.sourceFilter.name})" else "Unplugged"
 			is SetTrigger.NotificationReceivedTrigger -> {
 				val stringFilter = if (objTrigger.bodyMatchMode == TextMatchMode.OTP_PRESET) "OTP Code" else objTrigger.bodyMatchMode.name
-				if (objTrigger.stringPackageFilter.isBlank()) "Notification ($stringFilter)"
-				else "Notif: ${objTrigger.stringPackageFilter.substringAfterLast('.')} ($stringFilter)"
+				val intExclCount = objTrigger.stringExcludedPackages.split(',').count { it.isNotBlank() }
+				val stringExclSuffix = if (intExclCount > 0) " [-$intExclCount app]" else ""
+				if (objTrigger.stringPackageFilter.isBlank()) "Notification ($stringFilter)$stringExclSuffix"
+				else "Notif: ${objTrigger.stringPackageFilter.substringAfterLast('.')} ($stringFilter)$stringExclSuffix"
 			}
 			is SetTrigger.NotificationDismissedTrigger -> "Notification Dismissed (${objTrigger.dismissReason.name})"
+			is SetTrigger.DeviceBootedTrigger -> {
+				if (objTrigger.intBootDelaySeconds > 0) "Device Booted (+${objTrigger.intBootDelaySeconds}s)"
+				else "Device Booted"
+			}
 		}
 	}
 
@@ -488,10 +559,20 @@ object ContextTemplateEngine {
 		return when (objAction) {
 			is SetAction.PlaySoundAction -> "Play Sound (${objAction.audioStream.name})"
 			is SetAction.SendNotificationAction -> "Notify: ${objAction.stringTitleTemplate}"
-			is SetAction.SetDndAction -> "Set DnD: ${objAction.targetMode.name}"
+			is SetAction.SetDndAction -> {
+				if (objAction.targetMode == DndTargetMode.OFF_ALLOW_ALL && objAction.boolSetRingerLoudWhenOff) {
+					"Set DnD: OFF (Loud)"
+				} else {
+					"Set DnD: ${objAction.targetMode.name}"
+				}
+			}
+			is SetAction.SetBrightnessAction -> {
+				if (objAction.boolAutoBrightness) "Brightness: Auto"
+				else "Brightness: ${objAction.intBrightnessPercent}%"
+			}
 			is SetAction.EndCallAction -> "End Phone Call"
 			is SetAction.SendSmsAction -> {
-				val stringDest = if (objAction.recipientMode == com.antigravity.triggeredactions.model.SmsRecipientMode.TRIGGER_CALLER_OR_SENDER) {
+				val stringDest = if (objAction.recipientMode == SmsRecipientMode.TRIGGER_CALLER_OR_SENDER) {
 					"Caller/Sender"
 				} else {
 					objAction.stringCustomPhoneNumber.ifBlank { "Number" }
@@ -503,7 +584,7 @@ object ContextTemplateEngine {
 			is SetAction.StartAppAction -> "Start App: ${objAction.stringPackageName.substringAfterLast('.').ifBlank { "Unset" }}"
 			is SetAction.StartAppShortcutAction -> "Shortcut: ${objAction.stringShortcutLabel.ifBlank { objAction.stringPackageName }}"
 			is SetAction.StartAppActivityAction -> {
-				if (objAction.systemPreset == com.antigravity.triggeredactions.model.SystemActivityPreset.NONE_CUSTOM_COMPONENT) {
+				if (objAction.systemPreset == SystemActivityPreset.NONE_CUSTOM_COMPONENT) {
 					"Activity: ${objAction.stringActivityClassName.substringAfterLast('.')}"
 				} else {
 					"OS Activity: ${objAction.systemPreset.name}"

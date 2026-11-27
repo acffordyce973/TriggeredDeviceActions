@@ -5,6 +5,7 @@ import com.antigravity.triggeredactions.data.ActionsRepository
 import com.antigravity.triggeredactions.engine.ConditionEvaluator
 import com.antigravity.triggeredactions.engine.ConflictAndAuditDetector
 import com.antigravity.triggeredactions.engine.ContextTemplateEngine
+import com.antigravity.triggeredactions.engine.TriggerDispatcher
 import com.antigravity.triggeredactions.model.ActionSet
 import com.antigravity.triggeredactions.model.ActionsConfigData
 import com.antigravity.triggeredactions.model.AppRunningCheckMode
@@ -62,6 +63,39 @@ class EngineAndNetworkTest {
 			""
 		)
 		assertFalse(objPlainCalendarYear.boolMatched)
+
+		// Real-world false positive 1: Discord/Xbox streak alert with lowercase host/device identifier acf-gzf7
+		val stringDiscordXboxAlert = """
+			acf.me.uk #personal-alerts: Mobile — > Don't break your streak!
+			Find out how many Rewards points you have today!
+			*com.microsoft.xboxone.smartglass @ acf-gzf7*
+		""".trimIndent()
+		val objDiscordFalsePositive = ContextTemplateEngine.evaluateTextMatch(
+			stringDiscordXboxAlert,
+			TextMatchMode.OTP_PRESET,
+			""
+		)
+		assertFalse(objDiscordFalsePositive.boolMatched)
+
+		// Real-world false positive 2: Marketing Black Friday email containing date year 2026 and promo offer code 33202
+		val stringDamartMarketingEmail = """
+			Damart BLACK FRIDAY — A Message from our Managing Director :love_letter:
+			AW26 - Email 78 jeanette email A FREE Gift awaits just for you View this email online The Home of Thermals New In Womens Sale New In Womens Mens Lingerie & Nightwear Footwear Home & Garden Thermals Sale Connect with us Get exclusive styling tips and sneak peeks #dressedindamart *Offer expires 11:59pm Friday 27th November 2026. Quote your offer code 33202 in the basket to receive 30% off your order and the free gift blue padded coat. This offer can only be used once and cannot be used in conjunction with an…
+		""".trimIndent()
+		val objDamartFalsePositive = ContextTemplateEngine.evaluateTextMatch(
+			stringDamartMarketingEmail,
+			TextMatchMode.OTP_PRESET,
+			""
+		)
+		assertFalse(objDamartFalsePositive.boolMatched)
+	}
+
+	@Test
+	fun testNotificationPackageExclusionMatching() {
+		assertTrue(TriggerDispatcher.isPackageExcluded("com.discord", "com.discord, com.slack"))
+		assertTrue(TriggerDispatcher.isPackageExcluded("COM.SLACK", "com.discord;com.slack"))
+		assertFalse(TriggerDispatcher.isPackageExcluded("com.google.android.apps.messaging", "com.discord"))
+		assertFalse(TriggerDispatcher.isPackageExcluded("com.discord", ""))
 	}
 
 	@Test
@@ -137,22 +171,43 @@ class EngineAndNetworkTest {
 	}
 
 	@Test
-	fun testPolymorphicSerializationRoundTripAndFiveTemplates() {
+	fun testPolymorphicSerializationRoundTripAndSixTemplates() {
 		val objDefaultConfig = ActionsRepository.buildDefaultSampleConfiguration()
-		assertEquals(5, objDefaultConfig.listActionSets.size)
+		assertEquals(6, objDefaultConfig.listActionSets.size)
 
-		val stringEncoded = ActionsRepository.jsonSerializer.encodeToString(objDefaultConfig)
+		val objBootBrightnessSet = ActionSet(
+			stringId = "test_boot_brightness",
+			stringName = "Boot Set Brightness",
+			listTriggers = listOf(SetTrigger.DeviceBootedTrigger(intBootDelaySeconds = 15)),
+			listActions = listOf(SetAction.SetBrightnessAction(boolAutoBrightness = false, intBrightnessPercent = 65))
+		)
+		val objAugmented = objDefaultConfig.copy(listActionSets = objDefaultConfig.listActionSets + objBootBrightnessSet)
+
+		val stringEncoded = ActionsRepository.jsonSerializer.encodeToString(objAugmented)
 		val objDecoded = ActionsRepository.jsonSerializer.decodeFromString<ActionsConfigData>(stringEncoded)
 
-		assertEquals(5, objDecoded.listActionSets.size)
+		assertEquals(7, objDecoded.listActionSets.size)
 		assertEquals(1, objDecoded.listGeofences.size)
+
 		val objDndSet = objDecoded.listActionSets.first { it.stringId == "template_dnd_callback" }
-		assertTrue(objDndSet.listActions.any { it is SetAction.EndCallAction })
+		assertTrue(objDndSet.listTriggers.first() is SetTrigger.MissedCallTrigger)
+		assertFalse(objDndSet.listActions.any { it is SetAction.EndCallAction })
 		assertTrue(objDndSet.listActions.any { it is SetAction.WaitDelayAction })
+
+		val objMorningSet = objDecoded.listActionSets.first { it.stringId == "template_morning_home_loud" }
+		val objMorningTrigger = objMorningSet.listTriggers.first() as SetTrigger.TimeScheduleTrigger
+		assertEquals(8, objMorningTrigger.intHour)
+		assertEquals(0, objMorningTrigger.intMinute)
+		assertTrue((objMorningSet.listActions.first() as SetAction.SetDndAction).boolSetRingerLoudWhenOff)
+
+		val objNightSet = objDecoded.listActionSets.first { it.stringId == "template_night_dnd_on" }
+		val objNightTrigger = objNightSet.listTriggers.first() as SetTrigger.TimeScheduleTrigger
+		assertEquals(22, objNightTrigger.intHour)
+		assertTrue(objNightSet.listConditions.isEmpty())
 	}
 
 	@Test
-	fun testConflictDetectorCatchesContradictoryDndSets() {
+	fun testConflictDetectorCatchesContradictoryDndSetsAndAllowsDistinctSchedules() {
 		val objSetA = ActionSet(
 			stringId = "a",
 			stringName = "Home Plug -> DnD Off",
@@ -170,6 +225,32 @@ class EngineAndNetworkTest {
 
 		val listIssues = ConflictAndAuditDetector.auditActionSets(listOf(objSetA, objSetB))
 		assertTrue(listIssues.any { it.stringIssueId.startsWith("dnd_conflict_") })
+
+		// Distinct daily schedules (09:30 Day vs 22:00 Night) with disjoint TimeConditions must NOT be flagged as conflicting
+		val objDaySet = ActionSet(
+			stringId = "day_dnd",
+			stringName = "Time Day: Do Not Disturb Off",
+			boolIsEnabled = true,
+			listTriggers = listOf(SetTrigger.TimeScheduleTrigger(boolIsInterval = false, intHour = 9, intMinute = 30)),
+			listConditions = listOf(
+				SetCondition.GeofenceCondition(stringGeofenceId = "geo_home", boolInside = true),
+				SetCondition.TimeCondition(intStartHour = 9, intStartMinute = 30, intEndHour = 21, intEndMinute = 59)
+			),
+			listActions = listOf(SetAction.SetDndAction(targetMode = DndTargetMode.OFF_ALLOW_ALL))
+		)
+		val objNightSet = ActionSet(
+			stringId = "night_dnd",
+			stringName = "Time Night: Do Not Disturb On",
+			boolIsEnabled = true,
+			listTriggers = listOf(SetTrigger.TimeScheduleTrigger(boolIsInterval = false, intHour = 22, intMinute = 0)),
+			listConditions = listOf(
+				SetCondition.TimeCondition(intStartHour = 22, intStartMinute = 0, intEndHour = 9, intEndMinute = 29)
+			),
+			listActions = listOf(SetAction.SetDndAction(targetMode = DndTargetMode.PRIORITY_ONLY))
+		)
+
+		val listScheduleIssues = ConflictAndAuditDetector.auditActionSets(listOf(objDaySet, objNightSet))
+		assertFalse(listScheduleIssues.any { it.stringIssueId.startsWith("dnd_conflict_") })
 	}
 
 	@Test
