@@ -267,13 +267,17 @@ object ConflictAndAuditDetector {
 			return true
 		}
 
-		// 1. Disjoint Geofence Inside vs Outside check
+		// 1. Disjoint Geofence Inside vs Outside check (including Any Location)
 		for (objGeoA in objSetA.listConditions.filterIsInstance<SetCondition.GeofenceCondition>()) {
 			for (objGeoB in objSetB.listConditions.filterIsInstance<SetCondition.GeofenceCondition>()) {
-				if (objGeoA.stringGeofenceId.isNotBlank() && objGeoA.stringGeofenceId == objGeoB.stringGeofenceId) {
-					val boolInsideA = if (objGeoA.boolInvert) !objGeoA.boolInside else objGeoA.boolInside
-					val boolInsideB = if (objGeoB.boolInvert) !objGeoB.boolInside else objGeoB.boolInside
-					if (boolInsideA != boolInsideB) return false
+				val boolInsideA = if (objGeoA.boolInvert) !objGeoA.boolInside else objGeoA.boolInside
+				val boolInsideB = if (objGeoB.boolInvert) !objGeoB.boolInside else objGeoB.boolInside
+				val boolSameSpecific = objGeoA.stringGeofenceId.isNotBlank() && objGeoA.stringGeofenceId == objGeoB.stringGeofenceId
+				val boolBothAny = objGeoA.stringGeofenceId.isBlank() && objGeoB.stringGeofenceId.isBlank()
+				val boolSpecificInsideVsAnyOutside = (objGeoA.stringGeofenceId.isNotBlank() && boolInsideA && objGeoB.stringGeofenceId.isBlank() && !boolInsideB) ||
+					(objGeoB.stringGeofenceId.isNotBlank() && boolInsideB && objGeoA.stringGeofenceId.isBlank() && !boolInsideA)
+				if (((boolSameSpecific || boolBothAny) && boolInsideA != boolInsideB) || boolSpecificInsideVsAnyOutside) {
+					return false
 				}
 			}
 		}

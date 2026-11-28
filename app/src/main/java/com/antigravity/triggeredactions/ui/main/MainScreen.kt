@@ -230,6 +230,7 @@ fun MainScreen(
 						listGeofences = objUiState.listGeofences,
 						listWebhookProfiles = objUiState.listWebhookProfiles,
 						listShareXProfiles = objUiState.listShareXProfiles,
+						boolExpandDetailsByDefault = objUiState.objSettings.boolExpandSetDetailsByDefault,
 						onSaveSet = { objViewModel.saveActionSet(it) },
 						onDuplicateSet = { objViewModel.duplicateActionSet(it) },
 						onDeleteSet = { objViewModel.deleteActionSet(it) },

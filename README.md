@@ -37,7 +37,7 @@
 
 | Trigger | Refinements & Data Filters |
 | :--- | :--- |
-| **Geofence Location** | Specific Geofence Area; `Enter`, `Exit`, or `Both` transitions |
+| **Geofence Location** | Specific Geofence Area or **Any** saved location; `Enter`, `Exit`, or `Both` transitions |
 | **Time** | Exact daily `HH:mm` clock time (with Days of Week filter) or periodic *N*-minute interval |
 | **Device Booted** | Runs when the device powers on or finishes rebooting (`BOOT_COMPLETED`), with optional post-boot delay seconds |
 | **Device Unlocked / Locked** | `Device Unlocked` (`USER_PRESENT`) or `Device Locked` |
@@ -63,7 +63,7 @@ Every condition supports **`NOT` (Invert)** and participates in the Set's **`ALL
 
 | Condition | Options & Refinements |
 | :--- | :--- |
-| **Geofence** | `Inside` or `Outside` a configured Geofence Area |
+| **Geofence** | `Inside` or `Outside` a specific Geofence Area or **Any** saved location (`Inside` any / `Outside` all) |
 | **Time** | Start–End Time Window (supports overnight wrap like `22:00`–`06:00`) + Days of Week |
 | **Device Unlocked** | `Unlocked` or `Locked` |
 | **Screen State** | `Screen On` (`PowerManager.isInteractive`) or `Screen Off` |

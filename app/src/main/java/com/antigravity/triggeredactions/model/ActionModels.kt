@@ -722,6 +722,7 @@ data class AppSettings(
 	val boolIgnoreUnsupportedConditions: Boolean = true,
 	val boolIncludeSecretsInBackup: Boolean = true,
 	val boolHasDismissedPermissionsOnboarding: Boolean = false,
+	val boolExpandSetDetailsByDefault: Boolean = false,
 	val intMaxLogEntries: Int = 100,
 	val stringBackupFilenameTemplate: String = "TriggeredActions_Config_{yyyyMMdd_HHmmss}"
 )

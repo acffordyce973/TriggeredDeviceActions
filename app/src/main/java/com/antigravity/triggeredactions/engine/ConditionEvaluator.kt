@@ -8,6 +8,7 @@ import com.antigravity.triggeredactions.model.AppRunningCheckMode
 import com.antigravity.triggeredactions.model.BatteryThresholdOperator
 import com.antigravity.triggeredactions.model.ChargingSourceFilter
 import com.antigravity.triggeredactions.model.ConditionMatchMode
+import com.antigravity.triggeredactions.model.ContactFilterMode
 import com.antigravity.triggeredactions.model.DndConditionMode
 import com.antigravity.triggeredactions.model.GeofenceArea
 import com.antigravity.triggeredactions.model.LiveDeviceState
@@ -86,6 +87,19 @@ object ConditionEvaluator {
 		return if (objCondition.boolInvert) !boolRaw else boolRaw
 	}
 
+	private fun isInsideGeofenceArea(objState: LiveDeviceState, objArea: GeofenceArea): Boolean {
+		if (objState.setActiveGeofenceIds.contains(objArea.stringId)) return true
+		val doubleLat = objState.doubleLatitude ?: return false
+		val doubleLon = objState.doubleLongitude ?: return false
+		val doubleDistanceMeters = computeDistanceMeters(
+			doubleLat,
+			doubleLon,
+			objArea.doubleLatitude,
+			objArea.doubleLongitude
+		)
+		return doubleDistanceMeters <= objArea.floatRadiusMeters
+	}
+
 	private fun evaluateGeofence(
 		objCondition: SetCondition.GeofenceCondition,
 		objState: LiveDeviceState,
@@ -95,7 +109,16 @@ object ConditionEvaluator {
 		if (!objState.boolSupportsLocation) {
 			return boolIgnoreUnsupported
 		}
-		if (objCondition.stringGeofenceId.isBlank()) return false
+
+		// Blank geofence ID means "Any Saved Location": Inside = inside any saved geofence; Outside = outside all saved geofences
+		if (objCondition.stringGeofenceId.isBlank()) {
+			if (listGeofences.isEmpty()) return false
+			val boolHasFixOrActive = objState.setActiveGeofenceIds.isNotEmpty() ||
+				(objState.doubleLatitude != null && objState.doubleLongitude != null)
+			if (!boolHasFixOrActive) return false
+			val boolInsideAny = listGeofences.any { isInsideGeofenceArea(objState, it) }
+			return boolInsideAny == objCondition.boolInside
+		}
 
 		// Check active geofence transition set first, then fall back to spherical/WGS84 distance calculation
 		val boolInsideByActiveSet = objState.setActiveGeofenceIds.contains(objCondition.stringGeofenceId)
@@ -256,7 +279,7 @@ object ConditionEvaluator {
 		if (!objState.boolSupportsTelephony) return boolIgnoreUnsupported
 		val boolInCall = objState.intCallState == TelephonyManager.CALL_STATE_OFFHOOK
 		if (boolInCall != objCondition.boolRequireInCall) return false
-		if (boolInCall && objCondition.contactFilterMode != com.antigravity.triggeredactions.model.ContactFilterMode.ANY) {
+		if (boolInCall && objCondition.contactFilterMode != ContactFilterMode.ANY) {
 			val stringNum = objState.stringActiveCallNumber.ifBlank { objEventContext.stringCallerOrSenderNumber }
 			return ContextTemplateEngine.matchesContactFilter(
 				objCondition.contactFilterMode,

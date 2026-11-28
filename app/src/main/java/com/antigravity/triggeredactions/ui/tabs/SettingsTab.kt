@@ -617,6 +617,29 @@ fun SettingsTab(
 						verticalAlignment = Alignment.CenterVertically
 					) {
 						Column(modifier = Modifier.weight(1f)) {
+							Text("Expand Action Set Details by Default", fontWeight = FontWeight.Bold)
+							Text(
+								"When off, Action Set cards show only name, description, toggle, and quick buttons until tapped to expand.",
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						}
+						Switch(
+							checked = objSettings.boolExpandSetDetailsByDefault,
+							onCheckedChange = { boolVal ->
+								onUpdateSettings { it.copy(boolExpandSetDetailsByDefault = boolVal) }
+							}
+						)
+					}
+
+					HorizontalDivider()
+
+					Row(
+						modifier = Modifier.fillMaxWidth(),
+						horizontalArrangement = Arrangement.SpaceBetween,
+						verticalAlignment = Alignment.CenterVertically
+					) {
+						Column(modifier = Modifier.weight(1f)) {
 							Text("Ignore Unsupported Hardware Conditions", fontWeight = FontWeight.Bold)
 							Text(
 								"Skips telephony/GPS conditions on Wi-Fi-only tablets when syncing backups across devices.",

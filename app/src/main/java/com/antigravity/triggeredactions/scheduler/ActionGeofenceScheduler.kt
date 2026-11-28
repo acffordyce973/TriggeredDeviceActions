@@ -37,7 +37,8 @@ object ActionGeofenceScheduler {
 	}
 
 	/**
-	 * Registers only the [GeofenceArea] items actively referenced by enabled [ActionSet] triggers or conditions.
+	 * Registers only the [GeofenceArea] items actively referenced by enabled [ActionSet] triggers or conditions
+	 * (or all saved geofences when any enabled trigger/condition selects `"Any Location"` with a blank ID).
 	 * Automatically removes registered geofences if master engine is paused or no enabled sets reference geofences.
 	 *
 	 * @param objContext Android context.
@@ -58,17 +59,30 @@ object ActionGeofenceScheduler {
 		}
 
 		val setReferencedIds = mutableSetOf<String>()
+		var boolReferencesAnyGeofence = false
 		for (objSet in listActionSets) {
 			if (!objSet.boolIsEnabled) continue
 			objSet.listTriggers.filterIsInstance<SetTrigger.GeofenceTrigger>().forEach {
-				if (it.stringGeofenceId.isNotBlank()) setReferencedIds.add(it.stringGeofenceId)
+				if (it.stringGeofenceId.isBlank()) {
+					boolReferencesAnyGeofence = true
+				} else {
+					setReferencedIds.add(it.stringGeofenceId)
+				}
 			}
 			objSet.listConditions.filterIsInstance<SetCondition.GeofenceCondition>().forEach {
-				if (it.stringGeofenceId.isNotBlank()) setReferencedIds.add(it.stringGeofenceId)
+				if (it.stringGeofenceId.isBlank()) {
+					boolReferencesAnyGeofence = true
+				} else {
+					setReferencedIds.add(it.stringGeofenceId)
+				}
 			}
 		}
 
-		val listActiveAreas = listGeofences.filter { setReferencedIds.contains(it.stringId) }
+		val listActiveAreas = if (boolReferencesAnyGeofence) {
+			listGeofences
+		} else {
+			listGeofences.filter { setReferencedIds.contains(it.stringId) }
+		}
 		if (listActiveAreas.isEmpty()) {
 			removeAllGeofences(objContext)
 			return

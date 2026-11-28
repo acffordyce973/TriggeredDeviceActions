@@ -213,6 +213,11 @@ fun TriggerEditorCard(
 				is SetTrigger.GeofenceTrigger -> {
 					Text("Location:", style = MaterialTheme.typography.labelMedium)
 					FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+						FilterChip(
+							selected = objTrigger.stringGeofenceId.isBlank(),
+							onClick = { onUpdate(objTrigger.copy(stringGeofenceId = "")) },
+							label = { Text("Any") }
+						)
 						listGeofences.forEach { objGeo ->
 							FilterChip(
 								selected = objTrigger.stringGeofenceId == objGeo.stringId,
@@ -752,6 +757,11 @@ fun ConditionEditorCard(
 						)
 					}
 					FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+						FilterChip(
+							selected = objCondition.stringGeofenceId.isBlank(),
+							onClick = { onUpdate(objCondition.copy(stringGeofenceId = "")) },
+							label = { Text("Any") }
+						)
 						listGeofences.forEach { objGeo ->
 							FilterChip(
 								selected = objCondition.stringGeofenceId == objGeo.stringId,
@@ -759,6 +769,17 @@ fun ConditionEditorCard(
 								label = { Text(objGeo.stringName) }
 							)
 						}
+					}
+					if (objCondition.stringGeofenceId.isBlank()) {
+						Text(
+							text = if (objCondition.boolInside) {
+								"Matches when inside any saved geofence location."
+							} else {
+								"Matches when outside all saved geofence locations."
+							},
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant
+						)
 					}
 				}
 

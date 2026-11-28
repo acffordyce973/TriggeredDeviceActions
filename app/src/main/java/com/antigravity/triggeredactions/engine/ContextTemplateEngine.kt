@@ -446,7 +446,11 @@ object ContextTemplateEngine {
 	fun getTriggerSummary(objTrigger: SetTrigger, listGeofences: List<GeofenceArea> = emptyList()): String {
 		return when (objTrigger) {
 			is SetTrigger.GeofenceTrigger -> {
-				val stringGeo = listGeofences.find { it.stringId == objTrigger.stringGeofenceId }?.stringName ?: "Geofence"
+				val stringGeo = if (objTrigger.stringGeofenceId.isBlank()) {
+					"Any Location"
+				} else {
+					listGeofences.find { it.stringId == objTrigger.stringGeofenceId }?.stringName ?: "Geofence"
+				}
 				"Geofence: $stringGeo (${objTrigger.transitionMode.name})"
 			}
 			is SetTrigger.TimeScheduleTrigger -> {
@@ -508,7 +512,11 @@ object ContextTemplateEngine {
 		val stringPrefix = if (objCondition.boolInvert) "NOT " else ""
 		val stringCore = when (objCondition) {
 			is SetCondition.GeofenceCondition -> {
-				val stringGeo = listGeofences.find { it.stringId == objCondition.stringGeofenceId }?.stringName ?: "Geofence"
+				val stringGeo = if (objCondition.stringGeofenceId.isBlank()) {
+					"Any Location"
+				} else {
+					listGeofences.find { it.stringId == objCondition.stringGeofenceId }?.stringName ?: "Geofence"
+				}
 				val stringDir = if (objCondition.boolInside) "Inside" else "Outside"
 				"$stringDir $stringGeo"
 			}

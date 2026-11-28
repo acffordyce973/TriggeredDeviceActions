@@ -171,6 +171,45 @@ class EngineAndNetworkTest {
 	}
 
 	@Test
+	fun testAnyLocationGeofenceConditionAndConflictDisjointness() {
+		val listGeos = listOf(
+			GeofenceArea("geo_home", "Home", 51.5074, -0.1278, 200f),
+			GeofenceArea("geo_work", "Work", 51.5200, -0.0900, 200f)
+		)
+		val objInsideAnySet = ActionSet(
+			stringId = "inside_any",
+			stringName = "Inside Any Location",
+			boolIsEnabled = true,
+			listTriggers = listOf(SetTrigger.GeofenceTrigger(stringGeofenceId = "")),
+			listConditions = listOf(SetCondition.GeofenceCondition(stringGeofenceId = "", boolInside = true)),
+			listActions = listOf(SetAction.SetDndAction(targetMode = DndTargetMode.OFF_ALLOW_ALL))
+		)
+		val objOutsideAnySet = ActionSet(
+			stringId = "outside_any",
+			stringName = "Outside Any Location",
+			boolIsEnabled = true,
+			listTriggers = listOf(SetTrigger.GeofenceTrigger(stringGeofenceId = "")),
+			listConditions = listOf(SetCondition.GeofenceCondition(stringGeofenceId = "", boolInside = false)),
+			listActions = listOf(SetAction.SetDndAction(targetMode = DndTargetMode.PRIORITY_ONLY))
+		)
+
+		val objAtWorkState = LiveDeviceState(doubleLatitude = 51.5200, doubleLongitude = -0.0900)
+		val objAwayState = LiveDeviceState(doubleLatitude = 52.0000, doubleLongitude = -1.0000)
+
+		assertTrue(ConditionEvaluator.evaluateSetConditions(objInsideAnySet, objAtWorkState, listGeos))
+		assertFalse(ConditionEvaluator.evaluateSetConditions(objOutsideAnySet, objAtWorkState, listGeos))
+		assertFalse(ConditionEvaluator.evaluateSetConditions(objInsideAnySet, objAwayState, listGeos))
+		assertTrue(ConditionEvaluator.evaluateSetConditions(objOutsideAnySet, objAwayState, listGeos))
+
+		assertEquals("Inside Any Location", ContextTemplateEngine.getConditionSummary(objInsideAnySet.listConditions.first(), listGeos))
+		assertEquals("Outside Any Location", ContextTemplateEngine.getConditionSummary(objOutsideAnySet.listConditions.first(), listGeos))
+		assertTrue(ContextTemplateEngine.getTriggerSummary(objInsideAnySet.listTriggers.first(), listGeos).contains("Any Location"))
+
+		val listIssues = ConflictAndAuditDetector.auditActionSets(listOf(objInsideAnySet, objOutsideAnySet))
+		assertFalse(listIssues.any { it.stringIssueId.startsWith("dnd_conflict_") })
+	}
+
+	@Test
 	fun testPolymorphicSerializationRoundTripAndSixTemplates() {
 		val objDefaultConfig = ActionsRepository.buildDefaultSampleConfiguration()
 		assertEquals(6, objDefaultConfig.listActionSets.size)

@@ -1,6 +1,8 @@
 package com.antigravity.triggeredactions.ui.tabs
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -24,6 +26,8 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
@@ -55,6 +59,7 @@ import com.antigravity.triggeredactions.engine.ContextTemplateEngine
 import com.antigravity.triggeredactions.model.ActionSet
 import com.antigravity.triggeredactions.model.GeofenceArea
 import com.antigravity.triggeredactions.model.SetAction
+import com.antigravity.triggeredactions.model.SetCondition
 import com.antigravity.triggeredactions.model.SetTrigger
 import com.antigravity.triggeredactions.model.ShareXProfile
 import com.antigravity.triggeredactions.model.WebhookProfile
@@ -62,7 +67,7 @@ import com.antigravity.triggeredactions.ui.dialogs.ActionSetEditorDialog
 
 /**
  * Sets tab mirroring Triggered Live Wallpaper's `FolderSetsTab` with search, category filter chips,
- * A–Z sorted Action Set cards, 1-tap manual Test Run, Duplicate, Edit, Delete, and Enable toggles.
+ * collapsible A–Z sorted Action Set cards, 1-tap manual Test Run, Duplicate, Edit, Delete, and Enable toggles.
  */
 @Composable
 fun ActionSetsTab(
@@ -70,6 +75,7 @@ fun ActionSetsTab(
 	listGeofences: List<GeofenceArea>,
 	listWebhookProfiles: List<WebhookProfile>,
 	listShareXProfiles: List<ShareXProfile>,
+	boolExpandDetailsByDefault: Boolean = false,
 	onSaveSet: (ActionSet) -> Unit,
 	onDuplicateSet: (ActionSet) -> Unit,
 	onDeleteSet: (String) -> Unit,
@@ -119,7 +125,7 @@ fun ActionSetsTab(
 						it is SetTrigger.NotificationReceivedTrigger || it is SetTrigger.NotificationDismissedTrigger
 					}
 					"Geofence" -> objSet.listTriggers.any { it is SetTrigger.GeofenceTrigger } ||
-						objSet.listConditions.any { it is com.antigravity.triggeredactions.model.SetCondition.GeofenceCondition }
+						objSet.listConditions.any { it is SetCondition.GeofenceCondition }
 					"Device Boot" -> objSet.listTriggers.any { it is SetTrigger.DeviceBootedTrigger }
 					"Charging / Battery" -> objSet.listTriggers.any {
 						it is SetTrigger.ChargingStateTrigger || it is SetTrigger.BatteryStatusTrigger
@@ -236,6 +242,7 @@ fun ActionSetsTab(
 					ActionSetCard(
 						objSet = objSet,
 						listGeofences = listGeofences,
+						boolExpandDetailsByDefault = boolExpandDetailsByDefault,
 						onTestRun = {
 							onTestRunSet(objSet)
 							Toast.makeText(objContext, "Running \"${objSet.stringName}\"...", Toast.LENGTH_SHORT).show()
@@ -275,12 +282,17 @@ fun ActionSetsTab(
 private fun ActionSetCard(
 	objSet: ActionSet,
 	listGeofences: List<GeofenceArea>,
+	boolExpandDetailsByDefault: Boolean,
 	onTestRun: () -> Unit,
 	onEdit: () -> Unit,
 	onDuplicate: () -> Unit,
 	onDelete: () -> Unit,
 	onToggleEnabled: (Boolean) -> Unit
 ) {
+	var boolExpanded by remember(objSet.stringId, boolExpandDetailsByDefault) {
+		mutableStateOf(boolExpandDetailsByDefault)
+	}
+
 	Card(
 		modifier = Modifier.fillMaxWidth(),
 		shape = RoundedCornerShape(16.dp),
@@ -298,12 +310,28 @@ private fun ActionSetCard(
 				horizontalArrangement = Arrangement.SpaceBetween,
 				verticalAlignment = Alignment.CenterVertically
 			) {
-				Column(modifier = Modifier.weight(1f)) {
-					Text(
-						text = objSet.stringName,
-						style = MaterialTheme.typography.titleMedium,
-						fontWeight = FontWeight.Bold
-					)
+				Column(
+					modifier = Modifier
+						.weight(1f)
+						.clickable { boolExpanded = !boolExpanded }
+				) {
+					Row(
+						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = Arrangement.spacedBy(4.dp)
+					) {
+						Text(
+							text = objSet.stringName,
+							style = MaterialTheme.typography.titleMedium,
+							fontWeight = FontWeight.Bold,
+							modifier = Modifier.weight(1f, fill = false)
+						)
+						Icon(
+							imageVector = if (boolExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+							contentDescription = if (boolExpanded) "Collapse Details" else "Expand Details",
+							tint = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.size(22.dp)
+						)
+					}
 					if (objSet.stringDescription.isNotBlank()) {
 						Text(
 							text = objSet.stringDescription,
@@ -327,6 +355,7 @@ private fun ActionSetCard(
 						}
 					}
 				}
+				Spacer(modifier = Modifier.width(8.dp))
 				Switch(checked = objSet.boolIsEnabled, onCheckedChange = onToggleEnabled)
 			}
 
@@ -348,47 +377,54 @@ private fun ActionSetCard(
 				}
 			}
 
-			Text("Triggers (OR):", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-			FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-				if (objSet.listTriggers.isEmpty()) {
-					SuggestionChip(onClick = {}, label = { Text("Manual Only") })
-				} else {
-					objSet.listTriggers.forEach { trig ->
-						SuggestionChip(
-							onClick = {},
-							label = { Text(ContextTemplateEngine.getTriggerSummary(trig, listGeofences)) },
-							colors = SuggestionChipDefaults.suggestionChipColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-						)
+			AnimatedVisibility(visible = boolExpanded) {
+				Column(
+					modifier = Modifier.fillMaxWidth(),
+					verticalArrangement = Arrangement.spacedBy(8.dp)
+				) {
+					Text("Triggers (OR):", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+					FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+						if (objSet.listTriggers.isEmpty()) {
+							SuggestionChip(onClick = {}, label = { Text("Manual Only") })
+						} else {
+							objSet.listTriggers.forEach { trig ->
+								SuggestionChip(
+									onClick = {},
+									label = { Text(ContextTemplateEngine.getTriggerSummary(trig, listGeofences)) },
+									colors = SuggestionChipDefaults.suggestionChipColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+								)
+							}
+						}
 					}
-				}
-			}
 
-			Text(
-				text = "Conditions (${objSet.conditionMatchMode.name}):",
-				style = MaterialTheme.typography.labelSmall,
-				fontWeight = FontWeight.Bold
-			)
-			FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-				if (objSet.listConditions.isEmpty()) {
-					SuggestionChip(onClick = {}, label = { Text("Always (Unconditional)") })
-				} else {
-					objSet.listConditions.forEach { cond ->
-						SuggestionChip(
-							onClick = {},
-							label = { Text(ContextTemplateEngine.getConditionSummary(cond, listGeofences)) }
-						)
-					}
-				}
-			}
-
-			Text("Actions (${objSet.listActions.size}):", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-			FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-				objSet.listActions.forEachIndexed { intIdx, act ->
-					SuggestionChip(
-						onClick = {},
-						label = { Text("${intIdx + 1}. ${ContextTemplateEngine.getActionSummary(act)}") },
-						colors = SuggestionChipDefaults.suggestionChipColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+					Text(
+						text = "Conditions (${objSet.conditionMatchMode.name}):",
+						style = MaterialTheme.typography.labelSmall,
+						fontWeight = FontWeight.Bold
 					)
+					FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+						if (objSet.listConditions.isEmpty()) {
+							SuggestionChip(onClick = {}, label = { Text("Always (Unconditional)") })
+						} else {
+							objSet.listConditions.forEach { cond ->
+								SuggestionChip(
+									onClick = {},
+									label = { Text(ContextTemplateEngine.getConditionSummary(cond, listGeofences)) }
+								)
+							}
+						}
+					}
+
+					Text("Actions (${objSet.listActions.size}):", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+					FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+						objSet.listActions.forEachIndexed { intIdx, act ->
+							SuggestionChip(
+								onClick = {},
+								label = { Text("${intIdx + 1}. ${ContextTemplateEngine.getActionSummary(act)}") },
+								colors = SuggestionChipDefaults.suggestionChipColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+							)
+						}
+					}
 				}
 			}
 		}
